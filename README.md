@@ -26,9 +26,9 @@ streamlit run app/dashboard.py
 ```
 
 ## Data files
-- `/tmp/workspace/sasipython1223/invest-ai-dashboard/data/watchlist.csv`
-- `/tmp/workspace/sasipython1223/invest-ai-dashboard/data/portfolio.csv`
-- `/tmp/workspace/sasipython1223/invest-ai-dashboard/data/trade_journal.csv`
+- `data/watchlist.csv`
+- `data/portfolio.csv`
+- `data/trade_journal.csv`
 
 ## Disclaimer
 This project is for educational decision-support prototyping only. It is **not financial advice**. Any trade must be manually reviewed and executed by the user.

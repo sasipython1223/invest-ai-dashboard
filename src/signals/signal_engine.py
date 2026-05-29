@@ -10,7 +10,7 @@ SIGNAL_INSUFFICIENT = "Insufficient Data"
 
 
 def evaluate_signal(price_series: pd.Series) -> dict[str, float | str | None]:
-    latest_price = float(price_series.iloc[-1]) if len(price_series) else None
+    latest_price = float(price_series.iloc[-1]) if not price_series.empty else None
     sma_200 = compute_sma(price_series, 200)
     momentum_6m = compute_momentum(price_series, 6)
     momentum_3m = compute_momentum(price_series, 3)

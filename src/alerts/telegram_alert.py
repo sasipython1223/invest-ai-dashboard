@@ -1,3 +1,3 @@
 def send_telegram_alert(message: str) -> str:
     """Placeholder function for future Telegram alerts."""
-    return "Telegram alert placeholder: not configured."
+    return f"Telegram alert placeholder: not configured. Message='{message}'"

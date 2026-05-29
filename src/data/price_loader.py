@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timezone
 
 import numpy as np
 import pandas as pd
@@ -11,10 +11,15 @@ except Exception:  # pragma: no cover - defensive import guard
     yf = None
 
 
-def _mock_price_history(ticker: str, periods: int = 260) -> pd.Series:
+def _mock_price_history(
+    ticker: str,
+    periods: int = 260,
+    end_date: datetime | None = None,
+) -> pd.Series:
     """Deterministic mock close-price history for safe local prototyping."""
-    end = datetime.utcnow().date()
-    dates = pd.date_range(end=end, periods=periods, freq="B")
+    if end_date is None:
+        end_date = datetime.now(timezone.utc)
+    dates = pd.date_range(end=end_date.date(), periods=periods, freq="B")
     base = max(20, sum(ord(char) for char in ticker) % 200)
     values = np.linspace(base * 0.85, base * 1.15, periods)
     return pd.Series(values, index=dates, name="Close")

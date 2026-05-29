@@ -60,9 +60,10 @@ st.header("5) Portfolio placeholder")
 st.dataframe(portfolio, use_container_width=True)
 
 st.header("6) AI review placeholder")
-first_signal = signals.iloc[0].to_dict() if not signals.empty else {}
-openai_review = review_with_openai(str(first_signal))
-gemini_review = review_with_gemini(str(first_signal))
+selected_ticker = st.selectbox("Select ticker for AI review", options=signals["ticker"].tolist())
+selected_signal = signals.loc[signals["ticker"] == selected_ticker].iloc[0].to_dict()
+openai_review = review_with_openai(str(selected_signal))
+gemini_review = review_with_gemini(str(selected_signal))
 consensus = check_consensus(openai_review, gemini_review)
 st.write({"openai": openai_review, "gemini": gemini_review, "consensus": consensus})
 
