@@ -34,7 +34,8 @@ def evaluate_risk(watchlist: pd.DataFrame, signals: pd.DataFrame) -> dict[str, o
 
     if reduce_count > 0:
         status = "REVIEW"
-        alerts.append(f"{reduce_count} holdings flagged as Reduce / Avoid.")
+        holdings_label = "holding" if reduce_count == 1 else "holdings"
+        alerts.append(f"{reduce_count} {holdings_label} flagged as Reduce / Avoid.")
 
     if not alerts:
         alerts.append("No rule-based risk alerts.")

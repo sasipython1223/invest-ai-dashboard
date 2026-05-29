@@ -49,5 +49,5 @@ def test_risk_engine_excludes_cash_from_reduce_avoid_count():
     result = evaluate_risk(watchlist, signals)
 
     assert result["status"] == "REVIEW"
-    assert "1 holdings flagged as Reduce / Avoid." in result["alerts"]
+    assert "1 holding flagged as Reduce / Avoid." in result["alerts"]
     assert result["reserve_target_weight"] == 10.0
