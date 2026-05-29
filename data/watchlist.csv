@@ -1,0 +1,10 @@
+ticker,name,market,type,bucket,currency,target_weight
+VWRA,Vanguard FTSE All-World,LSE,ETF,core,USD,40
+CSPX,iShares Core S&P 500,LSE,ETF,core,USD,20
+ES3,STI ETF,SGX,ETF,singapore,SGD,10
+DBS,DBS Group,SGX,Stock,singapore,SGD,5
+UOB,UOB,SGX,Stock,singapore,SGD,5
+AAPL,Apple,NASDAQ,Stock,tactical,USD,3
+MSFT,Microsoft,NASDAQ,Stock,tactical,USD,3
+NVDA,Nvidia,NASDAQ,Stock,tactical,USD,2
+CASH,Cash Reserve,CASH,Cash,cash,SGD,12
