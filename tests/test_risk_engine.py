@@ -30,3 +30,24 @@ def test_risk_engine_review_when_weights_invalid_or_reduce_signal():
 
     assert result["status"] == "REVIEW"
     assert len(result["alerts"]) >= 2
+
+
+def test_risk_engine_excludes_cash_from_reduce_avoid_count():
+    watchlist = pd.DataFrame(
+        [
+            {"ticker": "AAA", "market": "NASDAQ", "type": "Stock", "target_weight": 90},
+            {"ticker": "CASH", "market": "CASH", "type": "Cash", "target_weight": 10},
+        ]
+    )
+    signals = pd.DataFrame(
+        [
+            {"ticker": "AAA", "signal": "Reduce / Avoid"},
+            {"ticker": "CASH", "signal": "Reduce / Avoid"},
+        ]
+    )
+
+    result = evaluate_risk(watchlist, signals)
+
+    assert result["status"] == "REVIEW"
+    assert "1 holdings flagged as Reduce / Avoid." in result["alerts"]
+    assert result["reserve_target_weight"] == 10.0

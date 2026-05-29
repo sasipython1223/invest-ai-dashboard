@@ -23,7 +23,7 @@ st.warning(
 config = load_config()
 watchlist = load_watchlist(config["watchlist_path"])
 portfolio = load_portfolio(config["portfolio_path"])
-prices = load_prices_for_watchlist(watchlist["ticker"].tolist())
+prices = load_prices_for_watchlist(watchlist)
 signals = run_signal_engine(watchlist, prices)
 risk = evaluate_risk(watchlist, signals)
 
@@ -39,6 +39,7 @@ st.dataframe(
         [
             "ticker",
             "name",
+            "type",
             "bucket",
             "latest_price",
             "sma_200",
@@ -53,6 +54,8 @@ st.dataframe(
 
 st.header("4) Risk alerts")
 st.write(f"Risk status: **{risk['status']}**")
+if risk.get("reserve_target_weight", 0.0) > 0:
+    st.write(f"- Cash reserve (dry powder): {risk['reserve_target_weight']:.2f}% target weight.")
 for alert in risk["alerts"]:
     st.write(f"- {alert}")
 
