@@ -142,7 +142,7 @@ def test_zero_amount_returns_safe_warning_and_no_allocation():
     assert plan["warnings"]
 
 
-def test_capital_allocator_is_pure_deterministic_no_api_dependencies():
+def test_returns_dict_with_manual_review_flag():
     plan = build_cash_deployment_plan(
         amount=1000,
         watchlist=_sample_watchlist(),

@@ -95,9 +95,10 @@ def build_cash_deployment_plan(
     excluded_rows: list[dict[str, object]] = []
     allocation_rows: list[dict[str, object]] = []
 
-    style = _normalize_style(deployment_style)
-    if style != deployment_style:
+    normalized_style = _normalize_style(deployment_style)
+    if normalized_style != deployment_style:
         warnings.append("Invalid deployment style provided; defaulted to Balanced.")
+    effective_style = normalized_style
 
     safe_amount = _to_float(amount, default=0.0)
     currency = _get_currency(watchlist)
@@ -107,7 +108,7 @@ def build_cash_deployment_plan(
         return {
             "amount": round(max(0.0, safe_amount), 2),
             "currency": currency,
-            "deployment_style": style,
+            "deployment_style": effective_style,
             "deploy_now_amount": 0.0,
             "keep_as_cash": round(max(0.0, safe_amount), 2),
             "allocation_rows": allocation_rows,
@@ -116,10 +117,10 @@ def build_cash_deployment_plan(
             "manual_review_required": True,
         }
 
-    deploy_ratio = _DEPLOY_RATIOS[style]
-    if style == "Opportunistic" and not _risk_is_acceptable(risk):
+    deploy_ratio = _DEPLOY_RATIOS[effective_style]
+    if effective_style == "Opportunistic" and not _risk_is_acceptable(risk):
         deploy_ratio = _DEPLOY_RATIOS["Balanced"]
-        style = "Balanced"
+        effective_style = "Balanced"
         warnings.append("Risk status not acceptable for Opportunistic deployment; fallback to Balanced.")
 
     deploy_now_amount = round(safe_amount * deploy_ratio, 2)
@@ -130,7 +131,7 @@ def build_cash_deployment_plan(
         return {
             "amount": round(safe_amount, 2),
             "currency": currency,
-            "deployment_style": style,
+            "deployment_style": effective_style,
             "deploy_now_amount": deploy_now_amount,
             "keep_as_cash": keep_as_cash,
             "allocation_rows": allocation_rows,
@@ -179,7 +180,7 @@ def build_cash_deployment_plan(
         return {
             "amount": round(safe_amount, 2),
             "currency": currency,
-            "deployment_style": style,
+            "deployment_style": effective_style,
             "deploy_now_amount": deploy_now_amount,
             "keep_as_cash": keep_as_cash,
             "allocation_rows": allocation_rows,
@@ -194,7 +195,7 @@ def build_cash_deployment_plan(
     ]
 
     weights = eligible_df["target_weight"].astype(float)
-    if float(weights.sum()) <= 0:
+    if weights.sum() <= 0:
         warnings.append("Eligible target weights are missing; applying equal-weight distribution.")
         weights = pd.Series(1.0, index=eligible_df.index)
 
@@ -224,7 +225,7 @@ def build_cash_deployment_plan(
     return {
         "amount": round(safe_amount, 2),
         "currency": currency,
-        "deployment_style": style,
+        "deployment_style": effective_style,
         "deploy_now_amount": deploy_now_amount,
         "keep_as_cash": keep_as_cash,
         "allocation_rows": allocation_rows,
