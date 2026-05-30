@@ -41,6 +41,7 @@ from src.ui.trend_charts import (
     build_return_summary,
     build_ticker_trend_dataframe,
     build_weighted_portfolio_index,
+    get_price_history_diagnostics,
     rebase_comparison_frame,
     resolve_price_history,
 )
@@ -223,11 +224,12 @@ with tabs[1]:
         st.info("Combined indexed trend is unavailable due to missing or insufficient price history.")
         with st.expander("Show price history diagnostics"):
             st.write(f"Available price-history keys: **{len(prices)}**")
-            _available_keys = list(prices.keys())[:20]
-            st.write(f"Keys (first 20): {_available_keys}")
             st.write(f"Ticker → data_ticker mapping: {_ticker_to_data_ticker}")
             if _portfolio_skipped:
                 st.write(f"Tickers skipped (missing/insufficient history): {_portfolio_skipped}")
+            _diag_df = get_price_history_diagnostics(prices)
+            if not _diag_df.empty:
+                st.dataframe(_diag_df, use_container_width=True)
     else:
         portfolio_index_fig = go.Figure()
         portfolio_index_fig.add_trace(
@@ -266,13 +268,14 @@ with tabs[1]:
         st.info("Benchmark history is unavailable. Add VWRA, CSPX, or ES3 price history to enable comparison.")
         with st.expander("Show price history diagnostics"):
             st.write(f"Available price-history keys: **{len(prices)}**")
-            _available_keys = list(prices.keys())[:20]
-            st.write(f"Keys (first 20): {_available_keys}")
             st.write(f"Benchmark candidates checked: {BENCHMARK_CANDIDATES}")
             _benchmark_mapping = ", ".join(
                 f"{c}→{_ticker_to_data_ticker.get(c, 'N/A')}" for c in BENCHMARK_CANDIDATES
             )
             st.write(f"Resolved data_ticker for benchmarks: {_benchmark_mapping}")
+            _diag_df = get_price_history_diagnostics(prices)
+            if not _diag_df.empty:
+                st.dataframe(_diag_df, use_container_width=True)
     else:
         compare_df = pd.concat(
             [
