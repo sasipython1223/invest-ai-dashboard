@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 import sys
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -9,7 +10,7 @@ import streamlit as st
 import pandas as pd
 
 from src.ai_review.consensus_checker import check_consensus
-from src.ai_review.gemini_entry_reviewer import review_entry_with_gemini
+from src.ai_review.gemini_entry_reviewer import build_gemini_entry_review_prompt
 from src.ai_review.gemini_reviewer import review_with_gemini
 from src.ai_review.openai_reviewer import review_with_openai
 from src.data.portfolio_loader import load_portfolio
@@ -19,6 +20,7 @@ from src.data.watchlist_loader import load_watchlist
 from src.entries.entry_guidance import calculate_entry_guidance
 from src.risk.risk_engine import evaluate_risk
 from src.signals.signal_engine import run_signal_engine
+from src.ui.formatters import build_bid_zone_table, format_optional_price
 from src.utils.config import load_config
 
 
@@ -28,7 +30,8 @@ st.caption("Rules decide. AI explains. User executes manually.")
 
 st.warning(
     "Educational prototype only. Not financial advice. "
-    "No auto-trading. All trades must be manually reviewed and executed by the user."
+    "No auto-trading or broker/Tiger API execution. "
+    "All trades must be manually reviewed and executed by the user."
 )
 
 config = load_config()
@@ -94,7 +97,15 @@ selected_ai_signal = signals.loc[signals["ticker"] == selected_ai_ticker].iloc[0
 openai_review = review_with_openai(str(selected_ai_signal))
 gemini_review = review_with_gemini(str(selected_ai_signal))
 consensus = check_consensus(openai_review, gemini_review)
-st.write({"openai": openai_review, "gemini": gemini_review, "consensus": consensus})
+openai_status = "Not enabled" if "unavailable" in openai_review.lower() else "Placeholder"
+gemini_status = "Not enabled" if "unavailable" in gemini_review.lower() else "Placeholder"
+consensus_status = "Insufficient AI reviews" if consensus["consensus"] == "insufficient_ai_reviews" else "Pending"
+ai_cols = st.columns(3)
+ai_cols[0].metric("OpenAI review", openai_status)
+ai_cols[1].metric("Gemini review", gemini_status)
+ai_cols[2].metric("Consensus", consensus_status)
+with st.expander("Show raw AI review output"):
+    st.json({"openai": openai_review, "gemini": gemini_review, "consensus": consensus})
 
 st.header("7) Entry Guidance")
 entry_tickers = signals["ticker"].tolist()
@@ -110,35 +121,34 @@ entry_guidance = calculate_entry_guidance(
     price_history=prices.get(selected_entry_ticker, pd.Series(dtype=float)),
     signal_row=selected_entry_signal,
 )
+st.write(f"Selected ticker: **{selected_entry_ticker}**")
 st.write(f"Status: **{entry_guidance['status']}**")
-st.caption(
-    "This is not a trade instruction. It is a deterministic entry-review zone. "
-    "Manual review required."
+st.write(f"Signal: **{selected_entry_signal.get('signal', 'N/A')}**")
+st.info("Manual review required. No trades are executed by this dashboard.")
+
+st.subheader("Price context")
+price_cols_row1 = st.columns(4)
+price_cols_row1[0].metric("Latest price", format_optional_price(entry_guidance["latest_price"]))
+price_cols_row1[1].metric("20D SMA", format_optional_price(entry_guidance["sma_20"]))
+price_cols_row1[2].metric("50D SMA", format_optional_price(entry_guidance["sma_50"]))
+price_cols_row1[3].metric("200D SMA", format_optional_price(entry_guidance["sma_200"]))
+price_cols_row2 = st.columns(3)
+price_cols_row2[0].metric("ATR / volatility", format_optional_price(entry_guidance["atr_14"]))
+price_cols_row2[1].metric("20D low", format_optional_price(entry_guidance["recent_low_20d"]))
+price_cols_row2[2].metric("20D high", format_optional_price(entry_guidance["recent_high_20d"]))
+
+st.subheader("Bid zone review")
+st.table(build_bid_zone_table(entry_guidance))
+st.write(f"Preferred order type: **{entry_guidance['preferred_order_type']}**")
+
+st.warning(
+    "Educational prototype only. Not financial advice. No auto-trading, broker API, or Tiger API execution."
 )
-st.write(
-    {
-        "latest_price": entry_guidance["latest_price"],
-        "recent_close": entry_guidance["recent_close"],
-        "sma_20": entry_guidance["sma_20"],
-        "sma_50": entry_guidance["sma_50"],
-        "sma_200": entry_guidance["sma_200"],
-        "atr_14": entry_guidance["atr_14"],
-        "recent_low_20d": entry_guidance["recent_low_20d"],
-        "recent_high_20d": entry_guidance["recent_high_20d"],
-    }
-)
-st.write(
-    {
-        "aggressive_bid_zone": entry_guidance["aggressive_bid_zone"],
-        "normal_bid_zone": entry_guidance["normal_bid_zone"],
-        "conservative_bid_zone": entry_guidance["conservative_bid_zone"],
-        "preferred_order_type": entry_guidance["preferred_order_type"],
-        "manual_review_required": entry_guidance["manual_review_required"],
-    }
-)
-for warning in entry_guidance["warnings"]:
-    st.write(f"- {warning}")
-st.write("Manual checklist before placing any order:")
+with st.expander("Show detailed guardrails"):
+    for warning in entry_guidance["warnings"]:
+        st.write(f"- {warning}")
+
+st.subheader("Manual pre-trade checklist")
 st.write("- Verify live price in Tiger / broker app")
 st.write("- Verify bid/ask spread")
 st.write("- Verify lot size")
@@ -146,8 +156,15 @@ st.write("- Verify position size")
 st.write("- Verify portfolio allocation")
 st.write("- Confirm risk status")
 st.write("- Place order manually only if comfortable")
+
 st.subheader("Gemini challenge review")
-st.write(review_entry_with_gemini(entry_guidance, selected_entry_signal, risk))
+gemini_prompt = build_gemini_entry_review_prompt(entry_guidance, selected_entry_signal, risk)
+if not os.getenv("GEMINI_API_KEY"):
+    st.info("Gemini entry review is not enabled. Set GEMINI_API_KEY to activate independent review.")
+else:
+    st.info("Gemini entry review placeholder active. Real API integration pending.")
+with st.expander("Show Gemini review prompt"):
+    st.code(gemini_prompt)
 
 st.header("8) Trade journal placeholder")
 st.write("Manual execution checklist:")

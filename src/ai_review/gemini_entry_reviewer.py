@@ -38,7 +38,6 @@ def review_entry_with_gemini(
     signal_row: dict,
     risk: dict,
 ) -> str:
-    prompt = build_gemini_entry_review_prompt(entry_guidance, signal_row, risk)
     if not os.getenv("GEMINI_API_KEY"):
         return "Gemini entry review unavailable: set GEMINI_API_KEY to enable."
-    return f"Gemini entry review placeholder response for prompt: {prompt}"
+    return "Gemini entry review placeholder active. Real API integration pending."
