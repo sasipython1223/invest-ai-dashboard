@@ -35,6 +35,13 @@ from src.ui.charts import (
 )
 from src.ui.formatters import build_bid_zone_table, format_optional_price
 from src.ui.tab_helpers import get_tab_labels
+from src.ui.trend_charts import (
+    build_drawdown_series,
+    build_indexed_price_series,
+    build_return_summary,
+    build_ticker_trend_dataframe,
+    build_weighted_portfolio_index,
+)
 from src.utils.config import load_config
 
 
@@ -187,6 +194,103 @@ with tabs[1]:
     st.subheader("Current portfolio snapshot")
     st.dataframe(portfolio, use_container_width=True)
 
+    st.subheader("Combined indexed trend")
+    portfolio_index = build_weighted_portfolio_index(prices, watchlist)
+    if portfolio_index.empty:
+        st.info("Combined indexed trend is unavailable due to missing or insufficient price history.")
+    else:
+        portfolio_index_fig = go.Figure()
+        portfolio_index_fig.add_trace(
+            go.Scatter(
+                x=portfolio_index.index,
+                y=portfolio_index.values,
+                mode="lines",
+                name="Portfolio/Watchlist Index",
+            )
+        )
+        portfolio_index_fig.update_layout(
+            height=320,
+            margin=dict(l=10, r=10, t=30, b=10),
+            xaxis_title="Date",
+            yaxis_title="Index (Start = 100)",
+        )
+        st.plotly_chart(portfolio_index_fig, use_container_width=True)
+        st.caption("Indexed trend based on available price history and target weights.")
+
+    st.subheader("Portfolio vs benchmark")
+    benchmark_series = pd.Series(dtype=float)
+    benchmark_label = None
+    for candidate in ["VWRA", "CSPX", "ES3"]:
+        candidate_index = build_indexed_price_series(prices.get(candidate, pd.Series(dtype=float)))
+        if not candidate_index.empty:
+            benchmark_label = candidate
+            benchmark_series = candidate_index
+            break
+
+    if portfolio_index.empty:
+        st.info("Portfolio index is unavailable, so benchmark comparison cannot be shown.")
+    elif benchmark_label is None or benchmark_series.empty:
+        st.info("Benchmark history is unavailable. Add VWRA, CSPX, or ES3 price history to enable comparison.")
+    else:
+        compare_df = pd.concat(
+            [
+                portfolio_index.rename("Portfolio/Watchlist"),
+                benchmark_series.rename(benchmark_label),
+            ],
+            axis=1,
+            join="inner",
+        ).dropna()
+        if compare_df.empty:
+            st.info("Portfolio and benchmark histories do not overlap enough for a comparison chart.")
+        else:
+            comparison_fig = go.Figure()
+            comparison_fig.add_trace(
+                go.Scatter(
+                    x=compare_df.index,
+                    y=compare_df["Portfolio/Watchlist"],
+                    mode="lines",
+                    name="Portfolio/Watchlist",
+                )
+            )
+            comparison_fig.add_trace(
+                go.Scatter(
+                    x=compare_df.index,
+                    y=compare_df[benchmark_label],
+                    mode="lines",
+                    name=benchmark_label,
+                )
+            )
+            comparison_fig.update_layout(
+                height=320,
+                margin=dict(l=10, r=10, t=30, b=10),
+                xaxis_title="Date",
+                yaxis_title="Index (Start = 100)",
+            )
+            st.plotly_chart(comparison_fig, use_container_width=True)
+            st.caption("Historical comparison only. Not a prediction of future performance.")
+
+    st.subheader("Drawdown history")
+    if portfolio_index.empty:
+        st.info("Drawdown chart is unavailable because the combined indexed trend is unavailable.")
+    else:
+        drawdown_series = build_drawdown_series(portfolio_index)
+        drawdown_fig = go.Figure()
+        drawdown_fig.add_trace(
+            go.Scatter(
+                x=drawdown_series.index,
+                y=drawdown_series.values * 100.0,
+                mode="lines",
+                name="Drawdown",
+            )
+        )
+        drawdown_fig.update_layout(
+            height=280,
+            margin=dict(l=10, r=10, t=30, b=10),
+            xaxis_title="Date",
+            yaxis_title="Drawdown (%)",
+        )
+        st.plotly_chart(drawdown_fig, use_container_width=True)
+
     st.subheader("Cash deployment planner")
     input_cols = st.columns(2)
     cash_amount = input_cols[0].number_input(
@@ -309,6 +413,30 @@ with tabs[2]:
         use_container_width=True,
     )
 
+    st.subheader("Return summary")
+    return_summary = build_return_summary(signals, prices)
+    display_return_summary = return_summary.rename(
+        columns={
+            "momentum_3m": "3M momentum",
+            "momentum_6m": "6M momentum",
+            "return_1m": "1M return",
+        }
+    )
+    st.dataframe(
+        display_return_summary[
+            [
+                "ticker",
+                "name",
+                "bucket",
+                "signal",
+                "3M momentum",
+                "6M momentum",
+                "1M return",
+            ]
+        ],
+        use_container_width=True,
+    )
+
     st.subheader("Signal distribution")
     watchlist_signal_distribution = build_signal_distribution(signals)
     st.plotly_chart(
@@ -350,6 +478,50 @@ with tabs[3]:
     if selected_entry_signal.get("signal_reason"):
         st.write(f"Signal reason: {selected_entry_signal['signal_reason']}")
     st.info("Manual review required. No trades are executed by this dashboard.")
+
+    st.subheader("Historical trend")
+    ticker_trend_df = build_ticker_trend_dataframe(prices.get(selected_entry_ticker, pd.Series(dtype=float)))
+    if ticker_trend_df.empty:
+        st.info("Ticker trend chart is unavailable due to missing or insufficient price history.")
+    else:
+        trend_fig = go.Figure()
+        trend_fig.add_trace(
+            go.Scatter(
+                x=ticker_trend_df.index,
+                y=ticker_trend_df["price"],
+                mode="lines",
+                name="Price",
+            )
+        )
+        for column, label in [("sma_20", "20D SMA"), ("sma_50", "50D SMA"), ("sma_200", "200D SMA")]:
+            trend_fig.add_trace(
+                go.Scatter(
+                    x=ticker_trend_df.index,
+                    y=ticker_trend_df[column],
+                    mode="lines",
+                    name=label,
+                )
+            )
+
+        latest_date = ticker_trend_df.index[-1]
+        latest_price = float(ticker_trend_df["price"].iloc[-1])
+        trend_fig.add_trace(
+            go.Scatter(
+                x=[latest_date],
+                y=[latest_price],
+                mode="markers+text",
+                text=[f"Latest: {latest_price:.3f}"],
+                textposition="top center",
+                name="Latest price",
+            )
+        )
+        trend_fig.update_layout(
+            height=360,
+            margin=dict(l=10, r=10, t=30, b=10),
+            xaxis_title="Date",
+            yaxis_title="Price",
+        )
+        st.plotly_chart(trend_fig, use_container_width=True)
 
     st.subheader("Price context")
     price_cols_row1 = st.columns(4)
