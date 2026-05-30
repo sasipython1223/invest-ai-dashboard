@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 import numpy as np
 import pandas as pd
 
+from src.data.asset_classifier import is_tradeable_asset
+
 try:
     import yfinance as yf
 except Exception:  # pragma: no cover - defensive import guard
@@ -39,6 +41,18 @@ def load_price_history(ticker: str, period: str = "18mo") -> pd.Series:
         return _mock_price_history(ticker)
 
 
-def load_prices_for_watchlist(tickers: list[str]) -> dict[str, pd.Series]:
-    """Load history for each ticker, always returning safe data."""
-    return {ticker: load_price_history(ticker=ticker) for ticker in tickers}
+def load_prices_for_watchlist(
+    watchlist: pd.DataFrame | list[str],
+) -> dict[str, pd.Series]:
+    """Load history for each ticker, skipping non-tradeable reserve assets."""
+    if isinstance(watchlist, list):
+        return {ticker: load_price_history(ticker=ticker) for ticker in watchlist}
+
+    prices: dict[str, pd.Series] = {}
+    for _, row in watchlist.iterrows():
+        ticker = str(row["ticker"])
+        if is_tradeable_asset(row):
+            prices[ticker] = load_price_history(ticker=ticker)
+        else:
+            prices[ticker] = pd.Series(dtype=float, name="Close")
+    return prices

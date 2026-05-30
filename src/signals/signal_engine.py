@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import pandas as pd
 
+from src.data.asset_classifier import is_tradeable_asset
 from src.signals.momentum_signal import compute_momentum
 from src.signals.trend_signal import compute_sma
 
 
 SIGNAL_INSUFFICIENT = "Insufficient Data"
+SIGNAL_CASH_RESERVE = "Cash Reserve / No Signal"
+SIGNAL_CASH_REASON = "Non-tradeable reserve asset; no technical signal generated."
 
 
 def evaluate_signal(price_series: pd.Series) -> dict[str, float | str | None]:
@@ -50,11 +53,22 @@ def run_signal_engine(watchlist: pd.DataFrame, prices: dict[str, pd.Series]) -> 
     rows = []
     for _, row in watchlist.iterrows():
         ticker = row["ticker"]
-        metrics = evaluate_signal(prices.get(ticker, pd.Series(dtype=float)))
+        if is_tradeable_asset(row):
+            metrics = evaluate_signal(prices.get(ticker, pd.Series(dtype=float)))
+        else:
+            metrics = {
+                "latest_price": None,
+                "sma_200": None,
+                "momentum_6m": None,
+                "momentum_3m": None,
+                "signal": SIGNAL_CASH_RESERVE,
+                "signal_reason": SIGNAL_CASH_REASON,
+            }
         rows.append(
             {
                 "ticker": ticker,
                 "name": row.get("name", ""),
+                "type": row.get("type", ""),
                 "bucket": row.get("bucket", ""),
                 **metrics,
             }

@@ -2,6 +2,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from src.data.asset_classifier import is_tradeable_asset
+
 REQUIRED_COLUMNS = [
     "ticker",
     "name",
@@ -22,4 +24,5 @@ def load_watchlist(path: str | Path) -> pd.DataFrame:
 
     watchlist["ticker"] = watchlist["ticker"].astype(str).str.upper().str.strip()
     watchlist["target_weight"] = pd.to_numeric(watchlist["target_weight"], errors="raise")
+    watchlist["is_tradeable"] = watchlist.apply(is_tradeable_asset, axis=1)
     return watchlist

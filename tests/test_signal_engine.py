@@ -1,7 +1,12 @@
 import numpy as np
 import pandas as pd
 
-from src.signals.signal_engine import evaluate_signal
+from src.signals.signal_engine import (
+    SIGNAL_CASH_REASON,
+    SIGNAL_CASH_RESERVE,
+    evaluate_signal,
+    run_signal_engine,
+)
 
 
 def _series(values):
@@ -42,3 +47,20 @@ def test_signal_insufficient_data():
     result = evaluate_signal(series)
 
     assert result["signal"] == "Insufficient Data"
+
+
+def test_run_signal_engine_cash_reserve_has_no_technical_signal():
+    watchlist = pd.DataFrame(
+        [
+            {"ticker": "CASH", "name": "Cash Reserve", "market": "CASH", "type": "Cash", "bucket": "cash"},
+            {"ticker": "AAPL", "name": "Apple", "market": "NASDAQ", "type": "Stock", "bucket": "tactical"},
+        ]
+    )
+    prices = {"AAPL": _series(np.linspace(100, 130, 220))}
+
+    signals = run_signal_engine(watchlist, prices).set_index("ticker")
+
+    assert signals.loc["CASH", "signal"] == SIGNAL_CASH_RESERVE
+    assert signals.loc["CASH", "signal_reason"] == SIGNAL_CASH_REASON
+    assert pd.isna(signals.loc["CASH", "latest_price"])
+    assert signals.loc["AAPL", "signal"] != SIGNAL_CASH_RESERVE
