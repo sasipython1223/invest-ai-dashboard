@@ -40,6 +40,13 @@ def normalize_price_history(price_history: object) -> pd.Series:
         return pd.Series(dtype=float)
 
 
+def _format_index_label(label: object) -> str:
+    """Return a readable string for a pandas index label."""
+    if hasattr(label, "date"):
+        return str(label.date())
+    return str(label)
+
+
 def get_price_history_diagnostics(
     prices: dict[str, object],
 ) -> pd.DataFrame:
@@ -80,37 +87,27 @@ def get_price_history_diagnostics(
         elif length == 1:
             status = "too_short"
         else:
-            # Determine whether the original had any values at all
+            # Determine whether the original had any data that failed numeric coercion
             try:
-                raw = pd.Series(value) if not isinstance(value, (pd.Series, pd.DataFrame)) else value
-                if isinstance(raw, pd.DataFrame):
-                    has_data = not raw.empty
+                if isinstance(value, pd.DataFrame):
+                    raw_flat = value.iloc[:, 0] if value.shape[1] == 1 else pd.Series(dtype=object)
+                elif isinstance(value, pd.Series):
+                    raw_flat = value
                 else:
-                    has_data = not raw.empty  # type: ignore[union-attr]
+                    raw_flat = pd.Series(value)
+                has_data = not raw_flat.empty
+                all_non_numeric = has_data and pd.to_numeric(raw_flat, errors="coerce").isna().all()
             except Exception:
                 has_data = False
+                all_non_numeric = False
 
-            if has_data:
-                # Had data but all were non-numeric or NaN after coercion
-                try:
-                    raw_series = (
-                        pd.Series(value, dtype=object)
-                        if isinstance(value, pd.Series)
-                        else None
-                    )
-                    if raw_series is not None and raw_series.map(
-                        lambda x: pd.to_numeric(x, errors="coerce")
-                    ).isna().all():
-                        status = "non_numeric"
-                    else:
-                        status = "empty"
-                except Exception:
-                    status = "empty"
+            if all_non_numeric:
+                status = "non_numeric"
             else:
                 status = "empty"
 
-        first_valid = str(cleaned.index[0].date()) if length > 0 and hasattr(cleaned.index[0], "date") else (str(cleaned.index[0]) if length > 0 else None)
-        last_valid = str(cleaned.index[-1].date()) if length > 0 and hasattr(cleaned.index[-1], "date") else (str(cleaned.index[-1]) if length > 0 else None)
+        first_valid = _format_index_label(cleaned.index[0]) if length > 0 else None
+        last_valid = _format_index_label(cleaned.index[-1]) if length > 0 else None
 
         rows.append(
             {
