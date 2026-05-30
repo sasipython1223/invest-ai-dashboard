@@ -31,3 +31,11 @@ def test_gemini_entry_review_unavailable_without_api_key(monkeypatch):
     response = review_entry_with_gemini({"ticker": "ES3"}, {"signal": "Watch"}, {"status": "REVIEW"})
 
     assert response == "Gemini entry review unavailable: set GEMINI_API_KEY to enable."
+
+
+def test_gemini_entry_review_placeholder_hides_prompt(monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "placeholder")
+
+    response = review_entry_with_gemini({"ticker": "ES3"}, {"signal": "Watch"}, {"status": "REVIEW"})
+
+    assert response == "Gemini entry review placeholder active. Real API integration pending."
