@@ -11,6 +11,8 @@ _DEPLOY_RATIOS = {
 }
 
 _ELIGIBLE_SIGNALS = {"Hold / Buy Candidate", "Watch"}
+_TRANCHE_1_RATIO = 0.5
+_TRANCHE_2_RATIO = 1 / 3
 
 
 def _normalize_style(style: str) -> str:
@@ -75,8 +77,8 @@ def _candidate_priority(row: pd.Series) -> tuple[int, float, str]:
 
 
 def _build_tranches(amount: float) -> tuple[float, float, float]:
-    tranche_1 = round(amount * 0.5, 2)
-    tranche_2 = round(amount * (1 / 3), 2)
+    tranche_1 = round(amount * _TRANCHE_1_RATIO, 2)
+    tranche_2 = round(amount * _TRANCHE_2_RATIO, 2)
     tranche_3 = round(amount - tranche_1 - tranche_2, 2)
     return tranche_1, tranche_2, tranche_3
 
