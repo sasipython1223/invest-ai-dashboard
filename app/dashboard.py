@@ -41,6 +41,7 @@ from src.ui.trend_charts import (
     build_return_summary,
     build_ticker_trend_dataframe,
     build_weighted_portfolio_index,
+    rebase_comparison_frame,
 )
 from src.utils.config import load_config
 
@@ -243,6 +244,7 @@ with tabs[1]:
         if compare_df.empty:
             st.info("Portfolio and benchmark histories do not overlap enough for a comparison chart.")
         else:
+            compare_df = rebase_comparison_frame(compare_df)
             comparison_fig = go.Figure()
             comparison_fig.add_trace(
                 go.Scatter(

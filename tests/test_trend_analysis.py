@@ -1,4 +1,5 @@
 import pandas as pd
+import pytest
 
 from src.ui.trend_charts import (
     build_drawdown_series,
@@ -6,6 +7,7 @@ from src.ui.trend_charts import (
     build_return_summary,
     build_ticker_trend_dataframe,
     build_weighted_portfolio_index,
+    rebase_comparison_frame,
 )
 
 
@@ -52,6 +54,24 @@ def test_drawdown_is_zero_at_new_highs_and_negative_below_peak():
     assert drawdown.iloc[1] == 0.0
     assert drawdown.iloc[2] < 0.0
     assert drawdown.iloc[3] == 0.0
+
+
+def test_rebase_comparison_frame_uses_first_shared_date_as_base_100():
+    dates = pd.to_datetime(["2024-01-02", "2024-01-03"])
+    compare_df = pd.DataFrame(
+        {
+            "Portfolio/Watchlist": [110.0, 121.0],
+            "VWRA": [100.0, 105.0],
+        },
+        index=dates,
+    )
+
+    rebased = rebase_comparison_frame(compare_df)
+
+    assert rebased.iloc[0]["Portfolio/Watchlist"] == 100.0
+    assert rebased.iloc[0]["VWRA"] == 100.0
+    assert rebased.iloc[1]["Portfolio/Watchlist"] == pytest.approx(110.0)
+    assert rebased.iloc[1]["VWRA"] == pytest.approx(105.0)
 
 
 def test_ticker_trend_dataframe_includes_required_columns():

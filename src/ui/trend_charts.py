@@ -69,6 +69,14 @@ def build_drawdown_series(index_series: pd.Series) -> pd.Series:
     return drawdown
 
 
+def rebase_comparison_frame(compare_df: pd.DataFrame) -> pd.DataFrame:
+    comparison = pd.DataFrame(compare_df, dtype=float).dropna()
+    if comparison.empty:
+        return pd.DataFrame(dtype=float)
+
+    return comparison / comparison.iloc[0] * 100.0
+
+
 def build_ticker_trend_dataframe(price_history: pd.Series) -> pd.DataFrame:
     history = pd.Series(price_history, dtype=float).dropna()
     if history.empty:
