@@ -8,7 +8,7 @@ except ImportError:  # pragma: no cover
     genai = None
 
 NOT_ENABLED_MESSAGE = "Gemini entry review is not enabled. Set GEMINI_API_KEY to activate independent review."
-DEFAULT_GEMINI_MODEL = "gemini-3.5-flash"
+DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 
 
 def build_gemini_entry_review_prompt(
@@ -63,7 +63,12 @@ def review_entry_with_gemini(
             contents=prompt,
         )
     except Exception as exc:  # pragma: no cover
-        return f"Gemini entry review failed ({exc.__class__.__name__}). Please try again."
+        return (
+            "Gemini entry review failed: "
+            f"{exc.__class__.__name__} from Gemini API. "
+            "Check GEMINI_MODEL, API key/project access, and quota. "
+            "No API key was printed."
+        )
 
     if getattr(response, "text", None):
         return response.text

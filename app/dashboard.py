@@ -11,7 +11,11 @@ import pandas as pd
 import plotly.graph_objects as go
 
 from src.ai_review.consensus_checker import check_consensus
-from src.ai_review.gemini_entry_reviewer import build_gemini_entry_review_prompt, review_entry_with_gemini
+from src.ai_review.gemini_entry_reviewer import (
+    DEFAULT_GEMINI_MODEL,
+    build_gemini_entry_review_prompt,
+    review_entry_with_gemini,
+)
 from src.ai_review.gemini_reviewer import review_with_gemini
 from src.ai_review.openai_reviewer import review_with_openai
 from src.data.portfolio_loader import load_portfolio
@@ -420,9 +424,20 @@ with tabs[3]:
     st.write("- Place order manually only if comfortable")
 
     st.subheader("Gemini challenge review")
-    gemini_entry_review = review_entry_with_gemini(entry_guidance, selected_entry_signal, risk)
-    st.info(gemini_entry_review)
     gemini_prompt = build_gemini_entry_review_prompt(entry_guidance, selected_entry_signal, risk)
+    gemini_model = os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL)
+    st.caption(f"Gemini model: {gemini_model}")
+    gemini_review_cache_key = (selected_entry_ticker, gemini_prompt)
+    cached_gemini_review = st.session_state.get("gemini_entry_review_cache")
+    if cached_gemini_review and cached_gemini_review.get("key") == gemini_review_cache_key:
+        gemini_entry_review = cached_gemini_review["value"]
+    else:
+        gemini_entry_review = review_entry_with_gemini(entry_guidance, selected_entry_signal, risk)
+        st.session_state["gemini_entry_review_cache"] = {
+            "key": gemini_review_cache_key,
+            "value": gemini_entry_review,
+        }
+    st.info(gemini_entry_review)
     with st.expander("Show Gemini review prompt"):
         st.code(gemini_prompt)
 
