@@ -39,7 +39,7 @@ def build_action_items(signals: pd.DataFrame, risk: dict[str, object]) -> list[s
     reserve_target_weight = float(risk.get("reserve_target_weight", 0.0) or 0.0)
     items.append(f"Cash reserve: {reserve_target_weight:.2f}% target weight.")
 
-    if not any(signal_series.isin(_SIGNAL_GROUPS).tolist()):
+    if not any(signal_series.isin(_SIGNAL_GROUPS)):
         items.insert(0, "No urgent signal changes today.")
 
     return [f"{index}. {item}" for index, item in enumerate(items, start=1)]
