@@ -19,6 +19,7 @@ from src.data.price_loader import load_prices_for_watchlist
 from src.dashboard_summary import MANUAL_REVIEW_NOTE, build_action_items, count_signals
 from src.data.watchlist_loader import load_watchlist
 from src.entries.entry_guidance import calculate_entry_guidance
+from src.portfolio.capital_allocator import build_cash_deployment_plan
 from src.risk.risk_engine import evaluate_risk
 from src.signals.signal_engine import run_signal_engine
 from src.ui.charts import (
@@ -177,8 +178,97 @@ if risk.get("reserve_target_weight", 0.0) > 0:
 for alert in risk["alerts"]:
     st.write(f"- {alert}")
 
-st.header("5) Portfolio placeholder")
+st.header("5) Portfolio & Cash Deployment Review")
+st.subheader("Current portfolio snapshot")
 st.dataframe(portfolio, use_container_width=True)
+
+input_cols = st.columns(2)
+cash_amount = input_cols[0].number_input(
+    "Cash amount to review",
+    min_value=0.0,
+    value=1000.0,
+    step=50.0,
+)
+currency_label = input_cols[1].text_input("Currency label", value="SGD").strip().upper() or "SGD"
+deployment_cols = st.columns(2)
+deployment_style = deployment_cols[0].selectbox(
+    "Deployment style",
+    options=["Conservative", "Balanced", "Opportunistic"],
+    index=1,
+)
+include_tactical = deployment_cols[1].toggle("Include tactical bucket candidates", value=False)
+
+deployment_plan = build_cash_deployment_plan(
+    amount=float(cash_amount),
+    watchlist=watchlist,
+    signals=signals,
+    risk=risk,
+    deployment_style=deployment_style,
+    include_tactical=include_tactical,
+)
+deployment_plan["currency"] = currency_label
+
+st.write(f"Cash deployment review — {currency_label} {deployment_plan['amount']:,.2f}")
+st.write(f"Style: {deployment_plan['deployment_style']}")
+summary_cols = st.columns(2)
+summary_cols[0].metric(
+    "Deploy for review",
+    f"{currency_label} {deployment_plan['deploy_now_amount']:,.2f}",
+)
+summary_cols[1].metric(
+    "Keep as cash/dry powder",
+    f"{currency_label} {deployment_plan['keep_as_cash']:,.2f}",
+)
+
+allocation_df = pd.DataFrame(deployment_plan["allocation_rows"])
+st.subheader("Allocation review table")
+if allocation_df.empty:
+    st.info("No eligible candidates for deployment review.")
+else:
+    st.dataframe(
+        allocation_df[
+            [
+                "ticker",
+                "bucket",
+                "signal",
+                "suggested_amount",
+                "execution_note",
+            ]
+        ],
+        use_container_width=True,
+    )
+
+st.subheader("Tranche review table")
+if allocation_df.empty:
+    st.info("No tranche rows to review.")
+else:
+    st.dataframe(
+        allocation_df[
+            [
+                "ticker",
+                "suggested_amount",
+                "tranche_1",
+                "tranche_2",
+                "tranche_3",
+            ]
+        ],
+        use_container_width=True,
+    )
+
+excluded_df = pd.DataFrame(deployment_plan["excluded_rows"])
+st.subheader("Excluded candidates")
+if excluded_df.empty:
+    st.write("No exclusions.")
+else:
+    st.dataframe(excluded_df, use_container_width=True)
+
+if deployment_plan["warnings"]:
+    st.subheader("Warnings")
+    for warning in deployment_plan["warnings"]:
+        st.write(f"- {warning}")
+
+st.info("Manual review required. No trades are executed by this dashboard.")
+st.caption("Gemini allocation review: future enhancement")
 
 st.header("6) AI review placeholder")
 selected_ai_ticker = st.selectbox("Select ticker for AI review", options=signals["ticker"].tolist())
