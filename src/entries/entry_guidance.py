@@ -7,6 +7,9 @@ from src.data.asset_classifier import is_tradeable_asset
 STATUS_OK = "OK"
 STATUS_INSUFFICIENT = "Insufficient Data"
 STATUS_NOT_APPLICABLE = "Not Applicable"
+NARROW_BID_ZONE_WARNING = (
+    "Bid zone is narrow; verify live bid/ask spread before placing a manual limit order."
+)
 
 
 def _to_float(value: float | None) -> float | None:
@@ -37,6 +40,22 @@ def _format_zone(low: float | None, high: float | None) -> str | None:
     zone_low = min(low, high)
     zone_high = max(low, high)
     return f"{zone_low:.3f} to {zone_high:.3f}"
+
+
+def _normalize_bounds(low: float, high: float, *, upper_cap: float | None = None) -> tuple[float, float]:
+    zone_low = min(low, high)
+    zone_high = max(low, high)
+    if upper_cap is not None:
+        zone_high = min(zone_high, upper_cap)
+        zone_low = min(zone_low, zone_high)
+    return zone_low, zone_high
+
+
+def _build_buffered_bid_zone(center: float, buffer: float, latest_price: float) -> tuple[float, float]:
+    zone_low, zone_high = _normalize_bounds(center - buffer, center + buffer, upper_cap=latest_price)
+    if buffer > 0 and zone_high - zone_low <= 0:
+        zone_low = max(0.0, zone_high - buffer)
+    return _normalize_bounds(zone_low, zone_high, upper_cap=latest_price)
 
 
 def _base_payload(ticker: str) -> dict[str, object]:
@@ -99,18 +118,41 @@ def calculate_entry_guidance(
     sma_20 = _sma(history, 20)
     sma_50 = _sma(history, 50)
     sma_200 = _sma(history, 200)
-    atr_14 = _atr_like(history, 14) or 0.0
+    raw_atr_14 = _atr_like(history, 14)
+    has_valid_atr = raw_atr_14 is not None and raw_atr_14 > 0
+    fallback_buffer = latest_price * 0.0025
+    atr_14 = raw_atr_14 if has_valid_atr else 0.0
+    range_buffer = raw_atr_14 * 0.25 if has_valid_atr else fallback_buffer
+    atr_for_centers = raw_atr_14 if has_valid_atr else range_buffer * 4
     recent_low_20d = _to_float(history.tail(20).min())
     recent_high_20d = _to_float(history.tail(20).max())
 
-    aggressive_low = max(sma_20 if sma_20 is not None else latest_price, latest_price - 0.5 * atr_14)
-    aggressive_high = latest_price
+    aggressive_anchor = latest_price - 0.5 * atr_for_centers
+    aggressive_floor = sma_20 if sma_20 is not None else aggressive_anchor
+    aggressive_low, aggressive_high = _normalize_bounds(
+        max(aggressive_floor, aggressive_anchor),
+        latest_price,
+        upper_cap=latest_price,
+    )
 
-    normal_upper = min(latest_price, max(sma_20 if sma_20 is not None else latest_price, sma_50 if sma_50 is not None else latest_price))
-    normal_lower = min(normal_upper, latest_price - atr_14)
+    normal_center = sma_20 if sma_20 is not None else latest_price - atr_for_centers
+    normal_lower, normal_upper = _build_buffered_bid_zone(normal_center, range_buffer, latest_price)
 
-    conservative_upper = min(latest_price, sma_50 if sma_50 is not None else latest_price)
-    conservative_lower = min(conservative_upper, latest_price - 1.5 * atr_14)
+    conservative_center = sma_50 if sma_50 is not None else latest_price - 1.5 * atr_for_centers
+    conservative_lower, conservative_upper = _build_buffered_bid_zone(
+        conservative_center,
+        range_buffer,
+        latest_price,
+    )
+
+    narrow_threshold = max(latest_price * 0.001, range_buffer * 0.5)
+    zone_widths = [
+        aggressive_high - aggressive_low,
+        normal_upper - normal_lower,
+        conservative_upper - conservative_lower,
+    ]
+    if any(width <= narrow_threshold for width in zone_widths) and NARROW_BID_ZONE_WARNING not in payload["warnings"]:
+        payload["warnings"] = [*payload["warnings"], NARROW_BID_ZONE_WARNING]
 
     payload.update(
         {
