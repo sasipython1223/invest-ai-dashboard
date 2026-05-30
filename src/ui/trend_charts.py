@@ -40,8 +40,8 @@ def normalize_price_history(price_history: object) -> pd.Series:
         return pd.Series(dtype=float)
 
 
-def _format_index_label(label: object) -> str:
-    """Return a readable string for a pandas index label."""
+def _format_date_index_label(label: object) -> str:
+    """Return a readable string for a pandas date/temporal index label."""
     if hasattr(label, "date"):
         return str(label.date())
     return str(label)
@@ -106,8 +106,12 @@ def get_price_history_diagnostics(
             else:
                 status = "empty"
 
-        first_valid = _format_index_label(cleaned.index[0]) if length > 0 else None
-        last_valid = _format_index_label(cleaned.index[-1]) if length > 0 else None
+        if length > 0:
+            first_valid = _format_date_index_label(cleaned.index[0])
+            last_valid = _format_date_index_label(cleaned.index[-1])
+        else:
+            first_valid = None
+            last_valid = None
 
         rows.append(
             {
