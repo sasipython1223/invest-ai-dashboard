@@ -79,11 +79,10 @@ with gauge_cols[0]:
                 title={"text": "Watchlist Health"},
                 gauge={
                     "axis": {"range": [0, 100]},
-                    "bar": {"color": "#2E86AB"},
                     "steps": [
-                        {"range": [0, 39], "color": "#F5C6CB"},
-                        {"range": [40, 69], "color": "#FFF3CD"},
-                        {"range": [70, 100], "color": "#D4EDDA"},
+                        {"range": [0, 39]},
+                        {"range": [40, 69]},
+                        {"range": [70, 100]},
                     ],
                 },
             )
@@ -101,11 +100,10 @@ with gauge_cols[1]:
                 title={"text": "Action Urgency"},
                 gauge={
                     "axis": {"range": [0, 100]},
-                    "bar": {"color": "#5D6D7E"},
                     "steps": [
-                        {"range": [0, 24], "color": "#D4EDDA"},
-                        {"range": [25, 59], "color": "#FFF3CD"},
-                        {"range": [60, 100], "color": "#F5C6CB"},
+                        {"range": [0, 24]},
+                        {"range": [25, 59]},
+                        {"range": [60, 100]},
                     ],
                 },
             )
@@ -248,21 +246,19 @@ else:
                 orientation="h",
                 name=zone_row["label"],
                 hovertemplate="Zone: %{y}<br>Low: %{base:.3f}<br>High: %{customdata[0]:.3f}<extra></extra>",
-                marker_color="#7FB3D5",
                 showlegend=False,
             )
         )
-    for marker_label, marker_value, marker_color in [
-        ("Latest Price", entry_guidance.get("latest_price"), "#1B4F72"),
-        ("20-Day SMA", entry_guidance.get("sma_20"), "#117A65"),
-        ("50-Day SMA", entry_guidance.get("sma_50"), "#7D6608"),
-        ("200-Day SMA", entry_guidance.get("sma_200"), "#6C3483"),
+    for marker_label, marker_value in [
+        ("Latest Price", entry_guidance.get("latest_price")),
+        ("20-Day SMA", entry_guidance.get("sma_20")),
+        ("50-Day SMA", entry_guidance.get("sma_50")),
+        ("200-Day SMA", entry_guidance.get("sma_200")),
     ]:
         if marker_value is not None:
             entry_zone_figure.add_vline(
                 x=float(marker_value),
                 line_dash="dot",
-                line_color=marker_color,
                 annotation_text=marker_label,
                 annotation_position="top",
             )
