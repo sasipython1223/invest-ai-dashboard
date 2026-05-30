@@ -88,7 +88,15 @@ for alert in risk["alerts"]:
 st.header("5) Portfolio placeholder")
 st.dataframe(portfolio, use_container_width=True)
 
-st.header("8) Entry Guidance")
+st.header("6) AI review placeholder")
+selected_ai_ticker = st.selectbox("Select ticker for AI review", options=signals["ticker"].tolist())
+selected_ai_signal = signals.loc[signals["ticker"] == selected_ai_ticker].iloc[0].to_dict()
+openai_review = review_with_openai(str(selected_ai_signal))
+gemini_review = review_with_gemini(str(selected_ai_signal))
+consensus = check_consensus(openai_review, gemini_review)
+st.write({"openai": openai_review, "gemini": gemini_review, "consensus": consensus})
+
+st.header("7) Entry Guidance")
 entry_tickers = signals["ticker"].tolist()
 default_entry_index = entry_tickers.index("ES3") if "ES3" in entry_tickers else 0
 selected_entry_ticker = st.selectbox(
@@ -141,15 +149,7 @@ st.write("- Place order manually only if comfortable")
 st.subheader("Gemini challenge review")
 st.write(review_entry_with_gemini(entry_guidance, selected_entry_signal, risk))
 
-st.header("6) AI review placeholder")
-selected_ai_ticker = st.selectbox("Select ticker for AI review", options=signals["ticker"].tolist())
-selected_ai_signal = signals.loc[signals["ticker"] == selected_ai_ticker].iloc[0].to_dict()
-openai_review = review_with_openai(str(selected_ai_signal))
-gemini_review = review_with_gemini(str(selected_ai_signal))
-consensus = check_consensus(openai_review, gemini_review)
-st.write({"openai": openai_review, "gemini": gemini_review, "consensus": consensus})
-
-st.header("7) Trade journal placeholder")
+st.header("8) Trade journal placeholder")
 st.write("Manual execution checklist:")
 st.write("- Verify rule-based signal reason")
 st.write("- Verify risk status")
