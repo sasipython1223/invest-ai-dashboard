@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 
 
-def format_optional_price(value: object) -> str:
+def format_optional_price(value: float | int | None) -> str:
     if value is None or pd.isna(value):
         return "N/A"
     return f"{float(value):.3f}"

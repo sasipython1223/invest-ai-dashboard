@@ -28,11 +28,15 @@ st.set_page_config(page_title="invest-ai-dashboard", layout="wide")
 st.title("invest-ai-dashboard")
 st.caption("Rules decide. AI explains. User executes manually.")
 
-st.warning(
+GUARDRAIL_SUMMARY = (
     "Educational prototype only. Not financial advice. "
-    "No auto-trading or broker/Tiger API execution. "
+    "No auto-trading or broker API/Tiger API execution. "
     "All trades must be manually reviewed and executed by the user."
 )
+STATUS_NOT_ENABLED = "Not enabled"
+STATUS_PLACEHOLDER = "Placeholder"
+STATUS_INSUFFICIENT_AI = "Insufficient AI reviews"
+st.warning(GUARDRAIL_SUMMARY)
 
 config = load_config()
 watchlist = load_watchlist(config["watchlist_path"])
@@ -97,9 +101,9 @@ selected_ai_signal = signals.loc[signals["ticker"] == selected_ai_ticker].iloc[0
 openai_review = review_with_openai(str(selected_ai_signal))
 gemini_review = review_with_gemini(str(selected_ai_signal))
 consensus = check_consensus(openai_review, gemini_review)
-openai_status = "Not enabled" if "unavailable" in openai_review.lower() else "Placeholder"
-gemini_status = "Not enabled" if "unavailable" in gemini_review.lower() else "Placeholder"
-consensus_status = "Insufficient AI reviews" if consensus["consensus"] == "insufficient_ai_reviews" else "Pending"
+openai_status = STATUS_NOT_ENABLED if not os.getenv("OPENAI_API_KEY") else STATUS_PLACEHOLDER
+gemini_status = STATUS_NOT_ENABLED if not os.getenv("GEMINI_API_KEY") else STATUS_PLACEHOLDER
+consensus_status = STATUS_INSUFFICIENT_AI if consensus["consensus"] == "insufficient_ai_reviews" else "Pending"
 ai_cols = st.columns(3)
 ai_cols[0].metric("OpenAI review", openai_status)
 ai_cols[1].metric("Gemini review", gemini_status)
@@ -141,9 +145,7 @@ st.subheader("Bid zone review")
 st.table(build_bid_zone_table(entry_guidance))
 st.write(f"Preferred order type: **{entry_guidance['preferred_order_type']}**")
 
-st.warning(
-    "Educational prototype only. Not financial advice. No auto-trading, broker API, or Tiger API execution."
-)
+st.warning(GUARDRAIL_SUMMARY)
 with st.expander("Show detailed guardrails"):
     for warning in entry_guidance["warnings"]:
         st.write(f"- {warning}")
@@ -158,13 +160,13 @@ st.write("- Confirm risk status")
 st.write("- Place order manually only if comfortable")
 
 st.subheader("Gemini challenge review")
-gemini_prompt = build_gemini_entry_review_prompt(entry_guidance, selected_entry_signal, risk)
 if not os.getenv("GEMINI_API_KEY"):
     st.info("Gemini entry review is not enabled. Set GEMINI_API_KEY to activate independent review.")
 else:
     st.info("Gemini entry review placeholder active. Real API integration pending.")
-with st.expander("Show Gemini review prompt"):
-    st.code(gemini_prompt)
+    gemini_prompt = build_gemini_entry_review_prompt(entry_guidance, selected_entry_signal, risk)
+    with st.expander("Show Gemini review prompt"):
+        st.code(gemini_prompt)
 
 st.header("8) Trade journal placeholder")
 st.write("Manual execution checklist:")
