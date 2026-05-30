@@ -36,7 +36,7 @@ def build_action_items(signals: pd.DataFrame, risk: dict[str, object]) -> list[s
         if tickers:
             items.append(f"{prefix}: {', '.join(tickers)}. {MANUAL_REVIEW_NOTE}")
 
-    reserve_target_weight = float(risk.get("reserve_target_weight", 0.0) or 0.0)
+    reserve_target_weight = float(risk.get("reserve_target_weight", 0.0))
     items.append(f"Cash reserve: {reserve_target_weight:.2f}% target weight.")
 
     if not any(signal_series.isin(_SIGNAL_GROUPS)):

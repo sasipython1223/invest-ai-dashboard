@@ -45,7 +45,7 @@ metric_columns[0].metric("Total instruments", signal_counts["total_instruments"]
 metric_columns[1].metric("Hold / Buy candidates", signal_counts["hold_buy_candidates"])
 metric_columns[2].metric("Watch items", signal_counts["watch_items"])
 metric_columns[3].metric("Reduce / Avoid items", signal_counts["reduce_avoid_items"])
-metric_columns[4].metric("Cash reserve target weight", f"{risk['reserve_target_weight']:.2f}%")
+metric_columns[4].metric("Cash reserve target weight", f"{risk.get('reserve_target_weight', 0.0):.2f}%")
 
 st.info(MANUAL_REVIEW_NOTE)
 st.subheader("Today's Action List")
