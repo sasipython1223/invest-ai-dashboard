@@ -7,6 +7,8 @@ from src.ui.trend_charts import (
     build_return_summary,
     build_ticker_trend_dataframe,
     build_weighted_portfolio_index,
+    get_price_history_diagnostics,
+    normalize_price_history,
     rebase_comparison_frame,
     resolve_price_history,
 )
@@ -275,3 +277,168 @@ def test_benchmark_lookup_falls_through_to_next_candidate():
 
     assert label == "CSPX"
     assert not series.empty
+
+
+# ---------------------------------------------------------------------------
+# normalize_price_history tests
+# ---------------------------------------------------------------------------
+
+
+def test_normalize_price_history_handles_series():
+    s = pd.Series([10.0, 11.0, 12.0])
+    result = normalize_price_history(s)
+    assert list(result) == [10.0, 11.0, 12.0]
+    assert isinstance(result, pd.Series)
+
+
+def test_normalize_price_history_handles_dataframe_with_close():
+    df = pd.DataFrame({"Close": [100.0, 105.0, 110.0]})
+    result = normalize_price_history(df)
+    assert list(result) == [100.0, 105.0, 110.0]
+    assert isinstance(result, pd.Series)
+
+
+def test_normalize_price_history_handles_dataframe_with_adj_close():
+    df = pd.DataFrame({"Adj Close": [50.0, 55.0, 60.0]})
+    result = normalize_price_history(df)
+    assert list(result) == [50.0, 55.0, 60.0]
+    assert isinstance(result, pd.Series)
+
+
+def test_normalize_price_history_handles_single_column_dataframe():
+    df = pd.DataFrame({"price": [1.0, 2.0, 3.0]})
+    result = normalize_price_history(df)
+    assert list(result) == [1.0, 2.0, 3.0]
+
+
+def test_normalize_price_history_returns_empty_for_empty_series():
+    result = normalize_price_history(pd.Series(dtype=float))
+    assert result.empty
+
+
+def test_normalize_price_history_returns_empty_for_non_numeric_input():
+    s = pd.Series(["a", "b", "c"])
+    result = normalize_price_history(s)
+    assert result.empty
+
+
+def test_normalize_price_history_drops_nan_values():
+    import numpy as np
+
+    s = pd.Series([1.0, float("nan"), 3.0])
+    result = normalize_price_history(s)
+    assert list(result) == [1.0, 3.0]
+
+
+def test_normalize_price_history_multi_column_no_close_returns_empty():
+    df = pd.DataFrame({"Open": [10.0], "High": [11.0], "Low": [9.0], "Volume": [1000.0]})
+    result = normalize_price_history(df)
+    assert result.empty
+
+
+# ---------------------------------------------------------------------------
+# resolve_price_history with DataFrame values
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_price_history_handles_dataframe_value():
+    df = pd.DataFrame({"Close": [100.0, 110.0, 120.0]})
+    prices = {"VWRA": df}
+    result = resolve_price_history(prices, "VWRA")
+    assert not result.empty
+    assert list(result) == [100.0, 110.0, 120.0]
+
+
+def test_resolve_price_history_handles_adj_close_dataframe_via_data_ticker():
+    df = pd.DataFrame({"Adj Close": [200.0, 210.0]})
+    prices = {"VWRA.L": df}
+    result = resolve_price_history(prices, "VWRA", "VWRA.L")
+    assert not result.empty
+    assert list(result) == [200.0, 210.0]
+
+
+# ---------------------------------------------------------------------------
+# build_weighted_portfolio_index with DataFrame price histories
+# ---------------------------------------------------------------------------
+
+
+def test_weighted_portfolio_index_works_with_dataframe_price_histories():
+    watchlist = pd.DataFrame(
+        [
+            {"ticker": "AAA", "target_weight": 50},
+            {"ticker": "BBB", "target_weight": 50},
+        ]
+    )
+    prices = {
+        "AAA": pd.DataFrame({"Close": [10.0, 12.0, 14.0]}),
+        "BBB": pd.DataFrame({"Close": [20.0, 22.0, 24.0]}),
+    }
+    result = build_weighted_portfolio_index(prices, watchlist)
+    assert not result.empty
+    assert result.iloc[0] == 100.0
+
+
+# ---------------------------------------------------------------------------
+# get_price_history_diagnostics tests
+# ---------------------------------------------------------------------------
+
+
+def test_diagnostics_reports_usable_for_long_series():
+    import numpy as np
+
+    dates = pd.date_range("2024-01-01", periods=260, freq="B")
+    prices = {"VWRA": pd.Series(range(1, 261), index=dates, dtype=float)}
+    diag = get_price_history_diagnostics(prices)
+    row = diag[diag["key"] == "VWRA"].iloc[0]
+    assert row["status"] == "usable"
+    assert row["length"] == 260
+
+
+def test_diagnostics_reports_empty_for_cash():
+    prices = {"CASH": pd.Series(dtype=float)}
+    diag = get_price_history_diagnostics(prices)
+    row = diag[diag["key"] == "CASH"].iloc[0]
+    assert row["status"] == "empty"
+    assert row["length"] == 0
+
+
+def test_diagnostics_reports_too_short_for_single_point():
+    prices = {"XYZ": pd.Series([42.0])}
+    diag = get_price_history_diagnostics(prices)
+    row = diag[diag["key"] == "XYZ"].iloc[0]
+    assert row["status"] == "too_short"
+    assert row["length"] == 1
+
+
+def test_diagnostics_reports_missing_for_none_value():
+    prices = {"MISSING": None}
+    diag = get_price_history_diagnostics(prices)
+    row = diag[diag["key"] == "MISSING"].iloc[0]
+    assert row["status"] == "missing"
+
+
+def test_diagnostics_includes_first_and_last_valid_dates():
+    dates = pd.date_range("2024-01-02", periods=3, freq="B")
+    prices = {"AAPL": pd.Series([150.0, 152.0, 154.0], index=dates)}
+    diag = get_price_history_diagnostics(prices)
+    row = diag[diag["key"] == "AAPL"].iloc[0]
+    assert row["first_valid"] == "2024-01-02"
+    assert row["last_valid"] is not None
+
+
+def test_diagnostics_shows_correct_columns():
+    prices = {"A": pd.Series([1.0, 2.0])}
+    diag = get_price_history_diagnostics(prices)
+    assert list(diag.columns) == ["key", "type", "length", "first_valid", "last_valid", "status"]
+
+
+def test_diagnostics_no_api_calls(monkeypatch):
+    from src.data import price_loader
+
+    def _fail(*args, **kwargs):  # pragma: no cover - defensive
+        raise AssertionError("External API must not be called.")
+
+    monkeypatch.setattr(price_loader, "load_price_history", _fail)
+    prices = {"VWRA": pd.Series([100.0, 105.0]), "CASH": pd.Series(dtype=float)}
+    diag = get_price_history_diagnostics(prices)
+    assert len(diag) == 2

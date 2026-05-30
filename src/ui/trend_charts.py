@@ -2,9 +2,131 @@ from __future__ import annotations
 
 import pandas as pd
 
+_CLOSE_COLUMNS = ("Close", "Adj Close", "close", "adj_close")
+
+
+def normalize_price_history(price_history: object) -> pd.Series:
+    """Return a clean numeric close-price Series from various input shapes.
+
+    Handles:
+    - ``pd.Series`` of prices
+    - Single-column ``pd.DataFrame``
+    - ``pd.DataFrame`` with a recognized close-price column
+      (``Close``, ``Adj Close``, ``close``, ``adj_close``)
+    - Empty or non-numeric inputs
+
+    Returns a numeric ``pd.Series`` with ``dropna()`` applied.
+    Never calls external APIs.
+    """
+    if isinstance(price_history, pd.DataFrame):
+        df = price_history
+        # Try recognized close-price column names first
+        for col in _CLOSE_COLUMNS:
+            if col in df.columns:
+                return pd.to_numeric(df[col], errors="coerce").dropna()
+        # Single-column DataFrame — squeeze to Series
+        if df.shape[1] == 1:
+            return pd.to_numeric(df.iloc[:, 0], errors="coerce").dropna()
+        # Multi-column with no recognized name — return empty
+        return pd.Series(dtype=float)
+
+    if isinstance(price_history, pd.Series):
+        return pd.to_numeric(price_history, errors="coerce").dropna()
+
+    # Attempt generic coercion for other iterables/scalars
+    try:
+        return pd.to_numeric(pd.Series(price_history), errors="coerce").dropna()
+    except Exception:
+        return pd.Series(dtype=float)
+
+
+def get_price_history_diagnostics(
+    prices: dict[str, object],
+) -> pd.DataFrame:
+    """Return a summary DataFrame describing each price-history entry.
+
+    Columns: key, type, length, first_valid, last_valid, status
+
+    Statuses:
+    - ``usable``    — normalized series has >= 2 data points
+    - ``too_short`` — normalized series has exactly 1 data point
+    - ``empty``     — normalized series is empty but object was present
+    - ``non_numeric`` — original object could not be converted to numbers
+    - ``missing``   — key maps to ``None``
+
+    Never shows API keys or secrets.
+    """
+    rows: list[dict] = []
+    for key, value in prices.items():
+        if value is None:
+            rows.append(
+                {
+                    "key": key,
+                    "type": "None",
+                    "length": 0,
+                    "first_valid": None,
+                    "last_valid": None,
+                    "status": "missing",
+                }
+            )
+            continue
+
+        type_name = type(value).__name__
+        cleaned = normalize_price_history(value)
+        length = len(cleaned)
+
+        if length >= 2:
+            status = "usable"
+        elif length == 1:
+            status = "too_short"
+        else:
+            # Determine whether the original had any values at all
+            try:
+                raw = pd.Series(value) if not isinstance(value, (pd.Series, pd.DataFrame)) else value
+                if isinstance(raw, pd.DataFrame):
+                    has_data = not raw.empty
+                else:
+                    has_data = not raw.empty  # type: ignore[union-attr]
+            except Exception:
+                has_data = False
+
+            if has_data:
+                # Had data but all were non-numeric or NaN after coercion
+                try:
+                    raw_series = (
+                        pd.Series(value, dtype=object)
+                        if isinstance(value, pd.Series)
+                        else None
+                    )
+                    if raw_series is not None and raw_series.map(
+                        lambda x: pd.to_numeric(x, errors="coerce")
+                    ).isna().all():
+                        status = "non_numeric"
+                    else:
+                        status = "empty"
+                except Exception:
+                    status = "empty"
+            else:
+                status = "empty"
+
+        first_valid = str(cleaned.index[0].date()) if length > 0 and hasattr(cleaned.index[0], "date") else (str(cleaned.index[0]) if length > 0 else None)
+        last_valid = str(cleaned.index[-1].date()) if length > 0 and hasattr(cleaned.index[-1], "date") else (str(cleaned.index[-1]) if length > 0 else None)
+
+        rows.append(
+            {
+                "key": key,
+                "type": type_name,
+                "length": length,
+                "first_valid": first_valid,
+                "last_valid": last_valid,
+                "status": status,
+            }
+        )
+    return pd.DataFrame(rows, columns=["key", "type", "length", "first_valid", "last_valid", "status"])
+
 
 def resolve_price_history(
-    prices: dict[str, pd.Series],
+    prices: dict[str, object],
     ticker: str,
     data_ticker: str | None = None,
 ) -> pd.Series:
@@ -12,25 +134,27 @@ def resolve_price_history(
 
     First tries the display ticker key (e.g. ``VWRA``); if the series is
     absent or empty, falls back to the data_ticker key (e.g. ``VWRA.L``).
+    Accepts Series or DataFrames stored under those keys and normalizes
+    them to a clean close-price Series.
     Returns an empty Series when neither key yields usable history.
     Never calls external APIs.
     """
-    series = prices.get(ticker)
-    if series is not None:
-        cleaned = pd.Series(series, dtype=float).dropna()
+    value = prices.get(ticker)
+    if value is not None:
+        cleaned = normalize_price_history(value)
         if not cleaned.empty:
             return cleaned
     if data_ticker and data_ticker != ticker:
-        series = prices.get(data_ticker)
-        if series is not None:
-            cleaned = pd.Series(series, dtype=float).dropna()
+        value = prices.get(data_ticker)
+        if value is not None:
+            cleaned = normalize_price_history(value)
             if not cleaned.empty:
                 return cleaned
     return pd.Series(dtype=float)
 
 
-def build_indexed_price_series(price_history: pd.Series) -> pd.Series:
-    history = pd.Series(price_history, dtype=float).dropna()
+def build_indexed_price_series(price_history: object) -> pd.Series:
+    history = normalize_price_history(price_history)
     if history.empty:
         return pd.Series(dtype=float)
 
@@ -106,8 +230,8 @@ def rebase_comparison_frame(compare_df: pd.DataFrame) -> pd.DataFrame:
     return comparison / comparison.iloc[0] * 100.0
 
 
-def build_ticker_trend_dataframe(price_history: pd.Series) -> pd.DataFrame:
-    history = pd.Series(price_history, dtype=float).dropna()
+def build_ticker_trend_dataframe(price_history: object) -> pd.DataFrame:
+    history = normalize_price_history(price_history)
     if history.empty:
         return pd.DataFrame(columns=["price", "sma_20", "sma_50", "sma_200"])
 
