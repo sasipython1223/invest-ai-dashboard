@@ -70,6 +70,7 @@ def run_signal_engine(watchlist: pd.DataFrame, prices: dict[str, pd.Series]) -> 
                 "name": row.get("name", ""),
                 "type": row.get("type", ""),
                 "bucket": row.get("bucket", ""),
+                "data_ticker": row.get("data_ticker", ticker),
                 **metrics,
             }
         )

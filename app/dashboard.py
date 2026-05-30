@@ -34,21 +34,22 @@ st.header("2) Watchlist table")
 st.dataframe(watchlist, use_container_width=True)
 
 st.header("3) Signal summary")
+_signal_cols = [
+    "ticker",
+    "name",
+    "type",
+    "bucket",
+    "latest_price",
+    "sma_200",
+    "momentum_6m",
+    "momentum_3m",
+    "signal",
+    "signal_reason",
+]
+if "data_ticker" in signals.columns:
+    _signal_cols.insert(1, "data_ticker")
 st.dataframe(
-    signals[
-        [
-            "ticker",
-            "name",
-            "type",
-            "bucket",
-            "latest_price",
-            "sma_200",
-            "momentum_6m",
-            "momentum_3m",
-            "signal",
-            "signal_reason",
-        ]
-    ],
+    signals[_signal_cols],
     use_container_width=True,
 )
 

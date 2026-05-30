@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 
 from src.data.asset_classifier import is_tradeable_asset
+from src.data.ticker_mapper import get_data_ticker
 
 try:
     import yfinance as yf
@@ -52,7 +53,8 @@ def load_prices_for_watchlist(
     for _, row in watchlist.iterrows():
         ticker = str(row["ticker"])
         if is_tradeable_asset(row):
-            prices[ticker] = load_price_history(ticker=ticker)
+            data_ticker = get_data_ticker(row) or ticker
+            prices[ticker] = load_price_history(ticker=data_ticker)
         else:
             prices[ticker] = pd.Series(dtype=float, name="Close")
     return prices
