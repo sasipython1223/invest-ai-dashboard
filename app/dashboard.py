@@ -10,7 +10,7 @@ import streamlit as st
 import pandas as pd
 
 from src.ai_review.consensus_checker import check_consensus
-from src.ai_review.gemini_entry_reviewer import build_gemini_entry_review_prompt
+from src.ai_review.gemini_entry_reviewer import build_gemini_entry_review_prompt, review_entry_with_gemini
 from src.ai_review.gemini_reviewer import review_with_gemini
 from src.ai_review.openai_reviewer import review_with_openai
 from src.data.portfolio_loader import load_portfolio
@@ -160,13 +160,11 @@ st.write("- Confirm risk status")
 st.write("- Place order manually only if comfortable")
 
 st.subheader("Gemini challenge review")
-if not os.getenv("GEMINI_API_KEY"):
-    st.info("Gemini entry review is not enabled. Set GEMINI_API_KEY to activate independent review.")
-else:
-    st.info("Gemini entry review placeholder active. Real API integration pending.")
-    gemini_prompt = build_gemini_entry_review_prompt(entry_guidance, selected_entry_signal, risk)
-    with st.expander("Show Gemini review prompt"):
-        st.code(gemini_prompt)
+gemini_entry_review = review_entry_with_gemini(entry_guidance, selected_entry_signal, risk)
+st.info(gemini_entry_review)
+gemini_prompt = build_gemini_entry_review_prompt(entry_guidance, selected_entry_signal, risk)
+with st.expander("Show Gemini review prompt"):
+    st.code(gemini_prompt)
 
 st.header("8) Trade journal placeholder")
 st.write("Manual execution checklist:")

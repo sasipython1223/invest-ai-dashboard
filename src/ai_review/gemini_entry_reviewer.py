@@ -2,6 +2,14 @@ from __future__ import annotations
 
 import os
 
+try:
+    from google import genai
+except ImportError:  # pragma: no cover
+    genai = None
+
+NOT_ENABLED_MESSAGE = "Gemini entry review is not enabled. Set GEMINI_API_KEY to activate independent review."
+DEFAULT_GEMINI_MODEL = "gemini-3.5-flash"
+
 
 def build_gemini_entry_review_prompt(
     entry_guidance: dict,
@@ -38,6 +46,25 @@ def review_entry_with_gemini(
     signal_row: dict,
     risk: dict,
 ) -> str:
-    if not os.getenv("GEMINI_API_KEY"):
-        return "Gemini entry review unavailable: set GEMINI_API_KEY to enable."
-    return "Gemini entry review placeholder active. Real API integration pending."
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        return NOT_ENABLED_MESSAGE
+
+    if genai is None:
+        return "Gemini entry review unavailable: google-genai package is not installed."
+
+    model = os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL)
+    prompt = build_gemini_entry_review_prompt(entry_guidance, signal_row, risk)
+
+    try:
+        client = genai.Client(api_key=api_key)
+        response = client.models.generate_content(
+            model=model,
+            contents=prompt,
+        )
+    except Exception as exc:  # pragma: no cover
+        return f"Gemini entry review failed ({exc.__class__.__name__}). Please try again."
+
+    if getattr(response, "text", None):
+        return response.text
+    return "Gemini entry review failed: empty response."
