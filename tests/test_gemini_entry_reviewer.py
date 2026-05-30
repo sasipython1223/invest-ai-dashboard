@@ -59,10 +59,35 @@ def test_gemini_entry_review_calls_client_with_configured_model(monkeypatch):
     assert "entry_guidance={'ticker': 'ES3'}" in captured["contents"]
 
 
+def test_gemini_entry_review_uses_default_model_when_not_configured(monkeypatch):
+    captured = {}
+
+    class FakeModels:
+        def generate_content(self, *, model, contents):
+            captured["model"] = model
+            return SimpleNamespace(text="Accept")
+
+    class FakeClient:
+        def __init__(self, *, api_key):
+            self.models = FakeModels()
+
+    monkeypatch.setenv("GEMINI_API_KEY", "test-api-key")
+    monkeypatch.delenv("GEMINI_MODEL", raising=False)
+    monkeypatch.setattr(gemini_entry_reviewer, "genai", SimpleNamespace(Client=FakeClient))
+
+    response = review_entry_with_gemini({"ticker": "ES3"}, {"signal": "Watch"}, {"status": "REVIEW"})
+
+    assert response == "Accept"
+    assert captured["model"] == "gemini-2.5-flash"
+
+
 def test_gemini_entry_review_failure_returns_safe_error(monkeypatch):
+    class ClientError(Exception):
+        pass
+
     class FailingModels:
         def generate_content(self, *, model, contents):
-            raise RuntimeError("request failed: test-api-key")
+            raise ClientError("request failed: test-api-key")
 
     class FailingClient:
         def __init__(self, *, api_key):
@@ -74,5 +99,9 @@ def test_gemini_entry_review_failure_returns_safe_error(monkeypatch):
 
     response = review_entry_with_gemini({"ticker": "ES3"}, {"signal": "Watch"}, {"status": "REVIEW"})
 
-    assert response == "Gemini entry review failed (RuntimeError). Please try again."
+    assert response == (
+        "Gemini entry review failed: ClientError from Gemini API. "
+        "Check GEMINI_MODEL, API key/project access, and quota. "
+        "No API key was printed."
+    )
     assert "test-api-key" not in response
