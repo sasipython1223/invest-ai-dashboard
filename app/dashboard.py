@@ -6,14 +6,17 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import streamlit as st
+import pandas as pd
 
 from src.ai_review.consensus_checker import check_consensus
+from src.ai_review.gemini_entry_reviewer import review_entry_with_gemini
 from src.ai_review.gemini_reviewer import review_with_gemini
 from src.ai_review.openai_reviewer import review_with_openai
 from src.data.portfolio_loader import load_portfolio
 from src.data.price_loader import load_prices_for_watchlist
 from src.dashboard_summary import MANUAL_REVIEW_NOTE, build_action_items, count_signals
 from src.data.watchlist_loader import load_watchlist
+from src.entries.entry_guidance import calculate_entry_guidance
 from src.risk.risk_engine import evaluate_risk
 from src.signals.signal_engine import run_signal_engine
 from src.utils.config import load_config
@@ -86,14 +89,67 @@ st.header("5) Portfolio placeholder")
 st.dataframe(portfolio, use_container_width=True)
 
 st.header("6) AI review placeholder")
-selected_ticker = st.selectbox("Select ticker for AI review", options=signals["ticker"].tolist())
-selected_signal = signals.loc[signals["ticker"] == selected_ticker].iloc[0].to_dict()
-openai_review = review_with_openai(str(selected_signal))
-gemini_review = review_with_gemini(str(selected_signal))
+selected_ai_ticker = st.selectbox("Select ticker for AI review", options=signals["ticker"].tolist())
+selected_ai_signal = signals.loc[signals["ticker"] == selected_ai_ticker].iloc[0].to_dict()
+openai_review = review_with_openai(str(selected_ai_signal))
+gemini_review = review_with_gemini(str(selected_ai_signal))
 consensus = check_consensus(openai_review, gemini_review)
 st.write({"openai": openai_review, "gemini": gemini_review, "consensus": consensus})
 
-st.header("7) Trade journal placeholder")
+st.header("7) Entry Guidance")
+entry_tickers = signals["ticker"].tolist()
+default_entry_index = entry_tickers.index("ES3") if "ES3" in entry_tickers else 0
+selected_entry_ticker = st.selectbox(
+    "Select ticker for entry guidance",
+    options=entry_tickers,
+    index=default_entry_index,
+)
+selected_entry_signal = signals.loc[signals["ticker"] == selected_entry_ticker].iloc[0].to_dict()
+entry_guidance = calculate_entry_guidance(
+    ticker=selected_entry_ticker,
+    price_history=prices.get(selected_entry_ticker, pd.Series(dtype=float)),
+    signal_row=selected_entry_signal,
+)
+st.write(f"Status: **{entry_guidance['status']}**")
+st.caption(
+    "This is not a trade instruction. It is a deterministic entry-review zone. "
+    "Manual review required."
+)
+st.write(
+    {
+        "latest_price": entry_guidance["latest_price"],
+        "recent_close": entry_guidance["recent_close"],
+        "sma_20": entry_guidance["sma_20"],
+        "sma_50": entry_guidance["sma_50"],
+        "sma_200": entry_guidance["sma_200"],
+        "atr_14": entry_guidance["atr_14"],
+        "recent_low_20d": entry_guidance["recent_low_20d"],
+        "recent_high_20d": entry_guidance["recent_high_20d"],
+    }
+)
+st.write(
+    {
+        "aggressive_bid_zone": entry_guidance["aggressive_bid_zone"],
+        "normal_bid_zone": entry_guidance["normal_bid_zone"],
+        "conservative_bid_zone": entry_guidance["conservative_bid_zone"],
+        "preferred_order_type": entry_guidance["preferred_order_type"],
+        "manual_review_required": entry_guidance["manual_review_required"],
+    }
+)
+for warning in entry_guidance["warnings"]:
+    st.write(f"- {warning}")
+st.write("Manual checklist before placing any order:")
+st.write("- Verify live price in Tiger / broker app")
+st.write("- Verify bid/ask spread")
+st.write("- Verify lot size")
+st.write("- Verify position size")
+st.write("- Verify portfolio allocation")
+st.write("- Confirm risk status")
+st.write("- Place order manually only if comfortable")
+st.subheader("Gemini challenge review")
+st.write(review_entry_with_gemini(entry_guidance, selected_entry_signal, risk))
+
+st.header("8) Trade journal placeholder")
 st.write("Manual execution checklist:")
 st.write("- Verify rule-based signal reason")
 st.write("- Verify risk status")
