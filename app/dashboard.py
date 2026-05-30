@@ -12,6 +12,7 @@ from src.ai_review.gemini_reviewer import review_with_gemini
 from src.ai_review.openai_reviewer import review_with_openai
 from src.data.portfolio_loader import load_portfolio
 from src.data.price_loader import load_prices_for_watchlist
+from src.dashboard_summary import MANUAL_REVIEW_NOTE, build_action_items, count_signals
 from src.data.watchlist_loader import load_watchlist
 from src.risk.risk_engine import evaluate_risk
 from src.signals.signal_engine import run_signal_engine
@@ -35,7 +36,21 @@ signals = run_signal_engine(watchlist, prices)
 risk = evaluate_risk(watchlist, signals)
 
 st.header("1) Decision Center")
+st.subheader("What needs my decision today?")
 st.write("Deterministic signal output with manual execution checklist.")
+
+signal_counts = count_signals(signals)
+metric_columns = st.columns(5)
+metric_columns[0].metric("Total instruments", signal_counts["total_instruments"])
+metric_columns[1].metric("Hold / Buy candidates", signal_counts["hold_buy_candidates"])
+metric_columns[2].metric("Watch items", signal_counts["watch_items"])
+metric_columns[3].metric("Reduce / Avoid items", signal_counts["reduce_avoid_items"])
+metric_columns[4].metric("Cash reserve target weight", f"{risk.get('reserve_target_weight', 0.0):.2f}%")
+
+st.info(MANUAL_REVIEW_NOTE)
+st.subheader("Today's Action List")
+for action_item in build_action_items(signals, risk):
+    st.write(action_item)
 
 st.header("2) Watchlist table")
 st.dataframe(watchlist, use_container_width=True)
