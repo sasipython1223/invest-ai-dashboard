@@ -7,6 +7,9 @@ from src.data.asset_classifier import is_tradeable_asset
 STATUS_OK = "OK"
 STATUS_INSUFFICIENT = "Insufficient Data"
 STATUS_NOT_APPLICABLE = "Not Applicable"
+NARROW_BID_ZONE_WARNING = (
+    "Bid zone is narrow; verify live bid/ask spread before placing a manual limit order."
+)
 
 
 def _to_float(value: float | None) -> float | None:
@@ -119,7 +122,7 @@ def calculate_entry_guidance(
     has_valid_atr = raw_atr_14 is not None and raw_atr_14 > 0
     fallback_buffer = latest_price * 0.0025
     atr_14 = raw_atr_14 if has_valid_atr else 0.0
-    range_buffer = max(raw_atr_14 * 0.25, fallback_buffer) if has_valid_atr else fallback_buffer
+    range_buffer = raw_atr_14 * 0.25 if has_valid_atr else fallback_buffer
     atr_for_centers = raw_atr_14 if has_valid_atr else range_buffer * 4
     recent_low_20d = _to_float(history.tail(20).min())
     recent_high_20d = _to_float(history.tail(20).max())
@@ -148,11 +151,8 @@ def calculate_entry_guidance(
         normal_upper - normal_lower,
         conservative_upper - conservative_lower,
     ]
-    narrow_zone_warning = (
-        "Bid zone is narrow; verify live bid/ask spread before placing a manual limit order."
-    )
-    if any(width <= narrow_threshold for width in zone_widths) and narrow_zone_warning not in payload["warnings"]:
-        payload["warnings"] = [*payload["warnings"], narrow_zone_warning]
+    if any(width <= narrow_threshold for width in zone_widths) and NARROW_BID_ZONE_WARNING not in payload["warnings"]:
+        payload["warnings"] = [*payload["warnings"], NARROW_BID_ZONE_WARNING]
 
     payload.update(
         {

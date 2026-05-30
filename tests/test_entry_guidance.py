@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 
 from src.entries.entry_guidance import (
+    NARROW_BID_ZONE_WARNING,
     STATUS_INSUFFICIENT,
     STATUS_NOT_APPLICABLE,
     STATUS_OK,
@@ -107,7 +108,7 @@ def test_atr_fallback_creates_non_zero_practical_ranges_when_atr_is_zero():
     assert result["atr_14"] == 0.0
     assert result["normal_bid_zone_bounds"]["high"] > result["normal_bid_zone_bounds"]["low"]
     assert result["conservative_bid_zone_bounds"]["high"] > result["conservative_bid_zone_bounds"]["low"]
-    assert any("Bid zone is narrow" in warning for warning in result["warnings"])
+    assert NARROW_BID_ZONE_WARNING in result["warnings"]
 
 
 def test_entry_zone_visual_helper_accepts_updated_bounds_shape():
@@ -125,6 +126,15 @@ def test_entry_zone_visual_helper_accepts_updated_bounds_shape():
         "Normal Bid Zone",
         "Conservative Bid Zone",
     }
+    expected = {
+        "Aggressive Bid Zone": result["aggressive_bid_zone_bounds"],
+        "Normal Bid Zone": result["normal_bid_zone_bounds"],
+        "Conservative Bid Zone": result["conservative_bid_zone_bounds"],
+    }
+    for _, row in entry_zone_df.iterrows():
+        bounds = expected[row["label"]]
+        assert row["display_low"] == min(bounds["low"], bounds["high"])
+        assert row["display_high"] == max(bounds["low"], bounds["high"])
 
 
 def test_cash_asset_returns_not_applicable():
