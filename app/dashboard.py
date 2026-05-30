@@ -254,9 +254,9 @@ else:
         )
     for marker_label, marker_value, marker_color in [
         ("Latest Price", entry_guidance.get("latest_price"), "#1B4F72"),
-        ("20D SMA", entry_guidance.get("sma_20"), "#117A65"),
-        ("50D SMA", entry_guidance.get("sma_50"), "#7D6608"),
-        ("200D SMA", entry_guidance.get("sma_200"), "#6C3483"),
+        ("20-Day SMA", entry_guidance.get("sma_20"), "#117A65"),
+        ("50-Day SMA", entry_guidance.get("sma_50"), "#7D6608"),
+        ("200-Day SMA", entry_guidance.get("sma_200"), "#6C3483"),
     ]:
         if marker_value is not None:
             entry_zone_figure.add_vline(
@@ -274,7 +274,7 @@ else:
         yaxis_title="Entry style",
     )
     st.plotly_chart(entry_zone_figure, use_container_width=True)
-    if bool(entry_zone_df["was_normalized"].any()):
+    if entry_zone_df["was_normalized"].any():
         st.caption("Bid-zone bounds were normalized for chart display where needed.")
 
 st.warning(GUARDRAIL_SUMMARY)
