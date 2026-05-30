@@ -3,6 +3,32 @@ from __future__ import annotations
 import pandas as pd
 
 
+def resolve_price_history(
+    prices: dict[str, pd.Series],
+    ticker: str,
+    data_ticker: str | None = None,
+) -> pd.Series:
+    """Resolve price history by display ticker, then data_ticker fallback.
+
+    First tries the display ticker key (e.g. ``VWRA``); if the series is
+    absent or empty, falls back to the data_ticker key (e.g. ``VWRA.L``).
+    Returns an empty Series when neither key yields usable history.
+    Never calls external APIs.
+    """
+    series = prices.get(ticker)
+    if series is not None:
+        cleaned = pd.Series(series, dtype=float).dropna()
+        if not cleaned.empty:
+            return cleaned
+    if data_ticker and data_ticker != ticker:
+        series = prices.get(data_ticker)
+        if series is not None:
+            cleaned = pd.Series(series, dtype=float).dropna()
+            if not cleaned.empty:
+                return cleaned
+    return pd.Series(dtype=float)
+
+
 def build_indexed_price_series(price_history: pd.Series) -> pd.Series:
     history = pd.Series(price_history, dtype=float).dropna()
     if history.empty:
@@ -34,7 +60,10 @@ def build_weighted_portfolio_index(
         if pd.isna(target_weight) or float(target_weight) <= 0:
             continue
 
-        indexed_series = build_indexed_price_series(prices.get(ticker, pd.Series(dtype=float)))
+        data_ticker = str(row.get("data_ticker", "") or "").strip() or None
+        indexed_series = build_indexed_price_series(
+            resolve_price_history(prices, ticker, data_ticker)
+        )
         if len(indexed_series) < 2:
             continue
 
@@ -100,6 +129,8 @@ def build_return_summary(
     summary = pd.DataFrame(index=signals.index)
     for column in columns:
         summary[column] = signals[column] if column in signals else None
+    if "data_ticker" in signals.columns:
+        summary["data_ticker"] = signals["data_ticker"]
 
     summary["momentum_3m"] = pd.to_numeric(summary["momentum_3m"], errors="coerce")
     summary["momentum_6m"] = pd.to_numeric(summary["momentum_6m"], errors="coerce")
@@ -111,7 +142,8 @@ def build_return_summary(
             returns_1m.append(None)
             continue
 
-        history = pd.Series(prices.get(ticker, pd.Series(dtype=float)), dtype=float).dropna()
+        data_ticker = str(row.get("data_ticker", "") or "").strip() or None
+        history = resolve_price_history(prices, ticker, data_ticker)
         if len(history) < 22:
             returns_1m.append(None)
             continue

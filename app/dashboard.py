@@ -42,6 +42,7 @@ from src.ui.trend_charts import (
     build_ticker_trend_dataframe,
     build_weighted_portfolio_index,
     rebase_comparison_frame,
+    resolve_price_history,
 )
 from src.utils.config import load_config
 
@@ -58,6 +59,7 @@ GUARDRAIL_SUMMARY = (
 STATUS_NOT_ENABLED = "Not enabled"
 STATUS_PLACEHOLDER = "Placeholder"
 STATUS_INSUFFICIENT_AI = "Insufficient AI reviews"
+BENCHMARK_CANDIDATES = ["VWRA", "CSPX", "ES3"]
 st.warning(GUARDRAIL_SUMMARY)
 
 # ---------------------------------------------------------------------------
@@ -196,9 +198,36 @@ with tabs[1]:
     st.dataframe(portfolio, use_container_width=True)
 
     st.subheader("Combined indexed trend")
+    # Build a data_ticker lookup from the watchlist for diagnostics and fallback resolution
+    _ticker_to_data_ticker: dict[str, str] = {}
+    if "data_ticker" in watchlist.columns:
+        for _, _wl_row in watchlist.iterrows():
+            _t = str(_wl_row.get("ticker", "")).strip()
+            _dt = str(_wl_row.get("data_ticker", "") or "").strip()
+            if _t and _dt:
+                _ticker_to_data_ticker[_t] = _dt
+
     portfolio_index = build_weighted_portfolio_index(prices, watchlist)
+    _portfolio_skipped: list[str] = []
+    if portfolio_index.empty and not watchlist.empty:
+        for _, _wl_row in watchlist.iterrows():
+            _t = str(_wl_row.get("ticker", "")).upper().strip()
+            if _t in ("CASH", ""):
+                continue
+            _dt = _ticker_to_data_ticker.get(_t)
+            _s = resolve_price_history(prices, _t, _dt)
+            if len(_s) < 2:
+                _portfolio_skipped.append(_t)
+
     if portfolio_index.empty:
         st.info("Combined indexed trend is unavailable due to missing or insufficient price history.")
+        with st.expander("Show price history diagnostics"):
+            st.write(f"Available price-history keys: **{len(prices)}**")
+            _available_keys = list(prices.keys())[:20]
+            st.write(f"Keys (first 20): {_available_keys}")
+            st.write(f"Ticker → data_ticker mapping: {_ticker_to_data_ticker}")
+            if _portfolio_skipped:
+                st.write(f"Tickers skipped (missing/insufficient history): {_portfolio_skipped}")
     else:
         portfolio_index_fig = go.Figure()
         portfolio_index_fig.add_trace(
@@ -221,8 +250,11 @@ with tabs[1]:
     st.subheader("Portfolio vs benchmark")
     benchmark_series = pd.Series(dtype=float)
     benchmark_label = None
-    for candidate in ["VWRA", "CSPX", "ES3"]:
-        candidate_index = build_indexed_price_series(prices.get(candidate, pd.Series(dtype=float)))
+    for candidate in BENCHMARK_CANDIDATES:
+        _candidate_dt = _ticker_to_data_ticker.get(candidate)
+        candidate_index = build_indexed_price_series(
+            resolve_price_history(prices, candidate, _candidate_dt)
+        )
         if not candidate_index.empty:
             benchmark_label = candidate
             benchmark_series = candidate_index
@@ -232,6 +264,15 @@ with tabs[1]:
         st.info("Portfolio index is unavailable, so benchmark comparison cannot be shown.")
     elif benchmark_label is None or benchmark_series.empty:
         st.info("Benchmark history is unavailable. Add VWRA, CSPX, or ES3 price history to enable comparison.")
+        with st.expander("Show price history diagnostics"):
+            st.write(f"Available price-history keys: **{len(prices)}**")
+            _available_keys = list(prices.keys())[:20]
+            st.write(f"Keys (first 20): {_available_keys}")
+            st.write(f"Benchmark candidates checked: {BENCHMARK_CANDIDATES}")
+            _benchmark_mapping = ", ".join(
+                f"{c}→{_ticker_to_data_ticker.get(c, 'N/A')}" for c in BENCHMARK_CANDIDATES
+            )
+            st.write(f"Resolved data_ticker for benchmarks: {_benchmark_mapping}")
     else:
         compare_df = pd.concat(
             [
@@ -467,9 +508,11 @@ with tabs[3]:
         index=default_entry_index,
     )
     selected_entry_signal = signals.loc[signals["ticker"] == selected_entry_ticker].iloc[0].to_dict()
+    _selected_data_ticker = str(selected_entry_signal.get("data_ticker", "") or "").strip() or None
+    _selected_price_history = resolve_price_history(prices, selected_entry_ticker, _selected_data_ticker)
     entry_guidance = calculate_entry_guidance(
         ticker=selected_entry_ticker,
-        price_history=prices.get(selected_entry_ticker, pd.Series(dtype=float)),
+        price_history=_selected_price_history,
         signal_row=selected_entry_signal,
     )
 
@@ -482,9 +525,16 @@ with tabs[3]:
     st.info("Manual review required. No trades are executed by this dashboard.")
 
     st.subheader("Historical trend")
-    ticker_trend_df = build_ticker_trend_dataframe(prices.get(selected_entry_ticker, pd.Series(dtype=float)))
+    ticker_trend_df = build_ticker_trend_dataframe(_selected_price_history)
     if ticker_trend_df.empty:
         st.info("Ticker trend chart is unavailable due to missing or insufficient price history.")
+        with st.expander("Show price history diagnostics"):
+            st.write(f"Selected ticker: **{selected_entry_ticker}**")
+            _resolved_key = _selected_data_ticker or selected_entry_ticker
+            st.write(f"Resolved data_ticker: **{_resolved_key}**")
+            st.write(f"Available price-history keys: **{len(prices)}**")
+            _available_keys = list(prices.keys())[:20]
+            st.write(f"Keys (first 20): {_available_keys}")
     else:
         trend_fig = go.Figure()
         trend_fig.add_trace(
