@@ -8,6 +8,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 import streamlit as st
 import pandas as pd
+import plotly.graph_objects as go
 
 from src.ai_review.consensus_checker import check_consensus
 from src.ai_review.gemini_entry_reviewer import build_gemini_entry_review_prompt, review_entry_with_gemini
@@ -20,6 +21,13 @@ from src.data.watchlist_loader import load_watchlist
 from src.entries.entry_guidance import calculate_entry_guidance
 from src.risk.risk_engine import evaluate_risk
 from src.signals.signal_engine import run_signal_engine
+from src.ui.charts import (
+    build_allocation_by_bucket,
+    build_entry_zone_dataframe,
+    build_signal_distribution,
+    calculate_action_urgency_score,
+    calculate_watchlist_health_score,
+)
 from src.ui.formatters import build_bid_zone_table, format_optional_price
 from src.utils.config import load_config
 
@@ -57,6 +65,58 @@ metric_columns[2].metric("Watch items", signal_counts["watch_items"])
 metric_columns[3].metric("Reduce / Avoid items", signal_counts["reduce_avoid_items"])
 metric_columns[4].metric("Cash reserve target weight", f"{risk.get('reserve_target_weight', 0.0):.2f}%")
 
+health_summary = calculate_watchlist_health_score(signals)
+urgency_summary = calculate_action_urgency_score(signals)
+gauge_cols = st.columns(2)
+
+with gauge_cols[0]:
+    st.caption(f"Watchlist Health: {health_summary['label']}")
+    st.plotly_chart(
+        go.Figure(
+            go.Indicator(
+                mode="gauge+number",
+                value=health_summary["score"],
+                title={"text": "Watchlist Health"},
+                gauge={
+                    "axis": {"range": [0, 100]},
+                    "bar": {"color": "#2E86AB"},
+                    "steps": [
+                        {"range": [0, 39], "color": "#F5C6CB"},
+                        {"range": [40, 69], "color": "#FFF3CD"},
+                        {"range": [70, 100], "color": "#D4EDDA"},
+                    ],
+                },
+            )
+        ).update_layout(height=220, margin=dict(l=10, r=10, t=40, b=10)),
+        use_container_width=True,
+    )
+
+with gauge_cols[1]:
+    st.caption(f"Action Urgency: {urgency_summary['label']}")
+    st.plotly_chart(
+        go.Figure(
+            go.Indicator(
+                mode="gauge+number",
+                value=urgency_summary["score"],
+                title={"text": "Action Urgency"},
+                gauge={
+                    "axis": {"range": [0, 100]},
+                    "bar": {"color": "#5D6D7E"},
+                    "steps": [
+                        {"range": [0, 24], "color": "#D4EDDA"},
+                        {"range": [25, 59], "color": "#FFF3CD"},
+                        {"range": [60, 100], "color": "#F5C6CB"},
+                    ],
+                },
+            )
+        ).update_layout(height=220, margin=dict(l=10, r=10, t=40, b=10)),
+        use_container_width=True,
+    )
+
+reserve_target_weight = float(risk.get("reserve_target_weight", 0.0))
+st.caption(f"Cash reserve target: {reserve_target_weight:.2f}%")
+st.progress(max(0.0, min(1.0, reserve_target_weight / 100)))
+
 st.info(MANUAL_REVIEW_NOTE)
 st.subheader("Today's Action List")
 for action_item in build_action_items(signals, risk):
@@ -65,7 +125,34 @@ for action_item in build_action_items(signals, risk):
 st.header("2) Watchlist table")
 st.dataframe(watchlist, use_container_width=True)
 
+st.subheader("Target Allocation by Bucket")
+allocation_by_bucket = build_allocation_by_bucket(watchlist)
+if allocation_by_bucket.empty:
+    st.info("Target allocation data is not available yet.")
+else:
+    st.plotly_chart(
+        go.Figure(
+            go.Pie(
+                labels=allocation_by_bucket["bucket"],
+                values=allocation_by_bucket["target_weight"],
+                hole=0.55,
+            )
+        ).update_layout(height=320, margin=dict(l=10, r=10, t=30, b=10)),
+        use_container_width=True,
+    )
+
 st.header("3) Signal summary")
+signal_distribution = build_signal_distribution(signals)
+st.plotly_chart(
+    go.Figure(
+        go.Pie(
+            labels=signal_distribution["signal_group"],
+            values=signal_distribution["count"],
+            hole=0.55,
+        )
+    ).update_layout(height=320, margin=dict(l=10, r=10, t=30, b=10)),
+    use_container_width=True,
+)
 _signal_cols = [
     "ticker",
     "name",
@@ -144,6 +231,51 @@ price_cols_row2[2].metric("20D high", format_optional_price(entry_guidance["rece
 st.subheader("Bid zone review")
 st.table(build_bid_zone_table(entry_guidance))
 st.write(f"Preferred order type: **{entry_guidance['preferred_order_type']}**")
+
+st.subheader("Entry Zone Visual")
+entry_zone_df = build_entry_zone_dataframe(entry_guidance)
+if entry_zone_df.empty:
+    st.info("Entry zone visual is unavailable for this ticker.")
+else:
+    entry_zone_figure = go.Figure()
+    for _, zone_row in entry_zone_df.iterrows():
+        entry_zone_figure.add_trace(
+            go.Bar(
+                x=[zone_row["display_high"] - zone_row["display_low"]],
+                y=[zone_row["label"]],
+                base=zone_row["display_low"],
+                customdata=[[zone_row["display_high"]]],
+                orientation="h",
+                name=zone_row["label"],
+                hovertemplate="Zone: %{y}<br>Low: %{base:.3f}<br>High: %{customdata[0]:.3f}<extra></extra>",
+                marker_color="#7FB3D5",
+                showlegend=False,
+            )
+        )
+    for marker_label, marker_value, marker_color in [
+        ("Latest Price", entry_guidance.get("latest_price"), "#1B4F72"),
+        ("20D SMA", entry_guidance.get("sma_20"), "#117A65"),
+        ("50D SMA", entry_guidance.get("sma_50"), "#7D6608"),
+        ("200D SMA", entry_guidance.get("sma_200"), "#6C3483"),
+    ]:
+        if marker_value is not None:
+            entry_zone_figure.add_vline(
+                x=float(marker_value),
+                line_dash="dot",
+                line_color=marker_color,
+                annotation_text=marker_label,
+                annotation_position="top",
+            )
+    entry_zone_figure.update_layout(
+        barmode="overlay",
+        height=320,
+        margin=dict(l=10, r=10, t=30, b=10),
+        xaxis_title="Price",
+        yaxis_title="Entry style",
+    )
+    st.plotly_chart(entry_zone_figure, use_container_width=True)
+    if bool(entry_zone_df["was_normalized"].any()):
+        st.caption("Bid-zone bounds were normalized for chart display where needed.")
 
 st.warning(GUARDRAIL_SUMMARY)
 with st.expander("Show detailed guardrails"):
