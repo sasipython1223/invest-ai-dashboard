@@ -11,9 +11,15 @@ import pandas as pd
 import plotly.graph_objects as go
 
 from src.analytics.scenario_forecast import (
+    DEFAULT_HORIZONS,
     assign_volatility_risk_status,
     build_scenario_summary,
     build_volatility_cone,
+)
+from src.analytics.portfolio_outcome import (
+    build_default_allocation,
+    calculate_portfolio_outcome,
+    normalize_allocations,
 )
 from src.ai_review.consensus_checker import check_consensus
 from src.ai_review.gemini_entry_reviewer import (
@@ -524,6 +530,175 @@ with tabs[1]:
             for scenario_warning in SCENARIO_WARNINGS:
                 st.caption(scenario_warning)
             st.caption("Gemini scenario review: future enhancement")
+
+    st.subheader("Portfolio Outcome Simulator")
+    simulator_cols = st.columns(3)
+    simulator_investment = simulator_cols[0].number_input(
+        "Investment amount",
+        min_value=0.0,
+        value=2000.0,
+        step=100.0,
+        key="outcome_investment_amount",
+    )
+    simulator_currency = (
+        simulator_cols[1].text_input("Simulator currency", value="USD", key="outcome_currency_label").strip().upper()
+        or "USD"
+    )
+    simulator_horizon = simulator_cols[2].selectbox(
+        "Scenario horizon",
+        options=list(DEFAULT_HORIZONS.keys()),
+        index=1,
+        key="outcome_horizon_label",
+    )
+
+    simulator_toggles = st.columns(2)
+    simulator_include_tactical = simulator_toggles[0].toggle(
+        "Include tactical bucket candidates",
+        value=False,
+        key="outcome_include_tactical",
+    )
+    simulator_auto_normalize = simulator_toggles[1].checkbox(
+        "Auto-normalize allocations to 100%",
+        value=True,
+        key="outcome_auto_normalize",
+    )
+
+    default_allocation_df = build_default_allocation(
+        signals=signals,
+        watchlist=watchlist,
+        include_tactical=simulator_include_tactical,
+        risk_status=risk.get("status"),
+    )
+
+    if default_allocation_df.empty:
+        st.info("No eligible Hold / Buy candidates are available for the outcome simulator.")
+    else:
+        edited_allocation_rows: list[dict[str, object]] = []
+        for _, allocation_row in default_allocation_df.iterrows():
+            alloc_cols = st.columns([1.0, 2.0, 1.5, 1.5, 1.5, 1.5])
+            ticker = str(allocation_row["ticker"])
+            alloc_cols[0].write(ticker)
+            alloc_cols[1].write(allocation_row["name"] or "-")
+            alloc_cols[2].write(allocation_row["signal"] or "-")
+            alloc_cols[3].write(allocation_row["bucket"] or "-")
+            allocation_pct = alloc_cols[4].number_input(
+                f"Allocation % — {ticker}",
+                min_value=0.0,
+                max_value=100.0,
+                value=float(allocation_row["allocation_pct"]),
+                step=0.5,
+                key=f"outcome_alloc_{ticker}",
+                label_visibility="collapsed",
+            )
+            amount_value = float(simulator_investment) * float(allocation_pct) / 100.0
+            alloc_cols[5].write(f"{simulator_currency} {amount_value:,.2f}")
+            edited_allocation_rows.append(
+                {
+                    **allocation_row.to_dict(),
+                    "allocation_pct": float(allocation_pct),
+                }
+            )
+
+        edited_allocation_df = pd.DataFrame(edited_allocation_rows)
+        allocation_total = float(edited_allocation_df["allocation_pct"].sum())
+        st.write(
+            f"Current allocation total: **{allocation_total:.2f}%** "
+            f"({simulator_currency} {float(simulator_investment):,.2f} basis)"
+        )
+
+        if simulator_auto_normalize:
+            edited_allocation_df = normalize_allocations(edited_allocation_df)
+            normalized_total = float(edited_allocation_df["allocation_pct"].sum())
+            st.caption(f"Allocations normalized to {normalized_total:.2f}% for outcome calculations.")
+        elif abs(allocation_total - 100.0) > 1e-6:
+            st.warning(
+                f"Allocation total is {allocation_total:.0f}%. Normalize before interpreting outcomes."
+            )
+
+        ticker_outcome_df, portfolio_outcome_df = calculate_portfolio_outcome(
+            allocation_df=edited_allocation_df,
+            prices=prices,
+            total_investment=float(simulator_investment),
+            horizon_label=simulator_horizon,
+        )
+
+        if not ticker_outcome_df.empty:
+            ticker_outcome_df["allocation_pct"] = ticker_outcome_df["allocation_pct"].astype(float)
+            ticker_outcome_df["amount"] = ticker_outcome_df["amount"].astype(float)
+
+        likely_value = float(
+            portfolio_outcome_df.loc[portfolio_outcome_df["Scenario"] == "Likely / Expected", "Ending Value"].sum()
+        )
+        best_value = float(
+            portfolio_outcome_df.loc[portfolio_outcome_df["Scenario"] == "Best (+2 SD)", "Ending Value"].sum()
+        )
+        worst_value = float(
+            portfolio_outcome_df.loc[portfolio_outcome_df["Scenario"] == "Worst (-2 SD)", "Ending Value"].sum()
+        )
+        worst_loss = float(
+            portfolio_outcome_df.loc[portfolio_outcome_df["Scenario"] == "Worst (-2 SD)", "Gain / Loss"].sum()
+        )
+
+        summary_cols = st.columns(5)
+        summary_cols[0].metric("Investment amount", f"{simulator_currency} {float(simulator_investment):,.2f}")
+        summary_cols[1].metric("Likely value", f"{simulator_currency} {likely_value:,.2f}")
+        summary_cols[2].metric("Best case", f"{simulator_currency} {best_value:,.2f}")
+        summary_cols[3].metric("Worst case", f"{simulator_currency} {worst_value:,.2f}")
+        summary_cols[4].metric("Worst-case loss", f"{simulator_currency} {worst_loss:,.2f}")
+
+        st.subheader("Outcome table by ticker")
+        st.dataframe(
+            ticker_outcome_df.rename(
+                columns={
+                    "ticker": "Ticker",
+                    "allocation_pct": "Allocation %",
+                    "amount": "Amount",
+                    "best_value": "Best value",
+                    "expected_value": "Likely value",
+                    "normal_lower_value": "Cautious value",
+                    "worst_value": "Worst value",
+                    "worst_loss": "Worst loss",
+                }
+            )[
+                [
+                    "Ticker",
+                    "Allocation %",
+                    "Amount",
+                    "Best value",
+                    "Likely value",
+                    "Cautious value",
+                    "Worst value",
+                    "Worst loss",
+                    "status",
+                ]
+            ],
+            use_container_width=True,
+        )
+
+        st.subheader("Portfolio outcome table")
+        st.dataframe(portfolio_outcome_df, use_container_width=True, hide_index=True)
+
+        scenario_bar = go.Figure(
+            go.Bar(
+                x=["Invested", "Best (+2 SD)", "Likely / Expected", "Worst (-2 SD)"],
+                y=[
+                    float(simulator_investment),
+                    best_value,
+                    likely_value,
+                    worst_value,
+                ],
+            )
+        )
+        scenario_bar.update_layout(
+            height=260,
+            margin=dict(l=10, r=10, t=30, b=10),
+            yaxis_title=f"Value ({simulator_currency})",
+        )
+        st.plotly_chart(scenario_bar, use_container_width=True)
+
+    st.caption("Scenario outcomes are based on historical volatility bands, not guaranteed predictions.")
+    st.caption("Actual results may be outside the displayed ranges.")
+    st.caption("This tool supports manual review only and does not execute trades.")
 
     st.subheader("Cash deployment planner")
     input_cols = st.columns(2)
