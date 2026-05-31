@@ -4,6 +4,7 @@ import pytest
 from src.ui.trend_charts import (
     build_drawdown_series,
     build_indexed_price_series,
+    get_portfolio_index_diagnostics,
     build_return_summary,
     build_ticker_trend_dataframe,
     build_weighted_portfolio_index,
@@ -378,6 +379,142 @@ def test_weighted_portfolio_index_works_with_dataframe_price_histories():
     assert result.iloc[0] == 100.0
 
 
+def test_weighted_portfolio_index_uses_overlap_with_slightly_different_dates():
+    watchlist = pd.DataFrame(
+        [
+            {"ticker": "AAA", "target_weight": 50},
+            {"ticker": "BBB", "target_weight": 50},
+        ]
+    )
+    prices = {
+        "AAA": pd.Series(
+            [10.0, 11.0, 12.0],
+            index=pd.to_datetime(["2024-01-01", "2024-01-02", "2024-01-03"]),
+        ),
+        "BBB": pd.Series(
+            [20.0, 21.0, 22.0],
+            index=pd.to_datetime(["2024-01-02", "2024-01-03", "2024-01-04"]),
+        ),
+    }
+
+    result = build_weighted_portfolio_index(prices, watchlist)
+
+    assert not result.empty
+    assert result.iloc[0] == pytest.approx(100.0)
+
+
+def test_weighted_portfolio_index_handles_later_start_dates_with_fallback_alignment():
+    watchlist = pd.DataFrame(
+        [
+            {"ticker": "AAA", "target_weight": 60},
+            {"ticker": "BBB", "target_weight": 40},
+        ]
+    )
+    prices = {
+        "AAA": pd.Series(
+            [10.0, 11.0, 12.0],
+            index=pd.to_datetime(["2024-01-01", "2024-01-02", "2024-01-03"]),
+        ),
+        "BBB": pd.Series(
+            [20.0, 22.0, 24.0],
+            index=pd.to_datetime(["2024-01-10", "2024-01-11", "2024-01-12"]),
+        ),
+    }
+
+    result = build_weighted_portfolio_index(prices, watchlist)
+
+    assert not result.empty
+    assert result.iloc[0] == pytest.approx(100.0)
+    assert result.index.min() == pd.Timestamp("2024-01-01")
+    assert result.index.max() == pd.Timestamp("2024-01-12")
+
+
+def test_weighted_portfolio_index_ignores_invalid_and_zero_weights():
+    watchlist = pd.DataFrame(
+        [
+            {"ticker": "AAA", "target_weight": "70"},
+            {"ticker": "BBB", "target_weight": "invalid"},
+            {"ticker": "CCC", "target_weight": 0},
+            {"ticker": "CASH", "target_weight": 30},
+        ]
+    )
+    prices = {
+        "AAA": pd.Series([10.0, 11.0, 12.0]),
+        "BBB": pd.Series([20.0, 21.0, 22.0]),
+        "CCC": pd.Series([30.0, 31.0, 32.0]),
+    }
+
+    result = build_weighted_portfolio_index(prices, watchlist)
+
+    expected = build_indexed_price_series(prices["AAA"])
+    assert not result.empty
+    pd.testing.assert_series_equal(result, expected)
+
+
+def test_weighted_portfolio_index_normalizes_weights_across_included_tickers_only():
+    watchlist = pd.DataFrame(
+        [
+            {"ticker": "AAA", "target_weight": 20},
+            {"ticker": "BBB", "target_weight": 30},
+            {"ticker": "CCC", "target_weight": 50},
+        ]
+    )
+    prices = {
+        "AAA": pd.Series([10.0, 12.0]),
+        "BBB": pd.Series([20.0, 24.0]),
+        "CCC": pd.Series(dtype=float),
+    }
+
+    result = build_weighted_portfolio_index(prices, watchlist)
+
+    assert not result.empty
+    assert result.iloc[0] == pytest.approx(100.0)
+    assert result.iloc[-1] == pytest.approx(120.0)
+
+
+def test_weighted_portfolio_index_returns_non_empty_with_single_valid_ticker():
+    watchlist = pd.DataFrame(
+        [
+            {"ticker": "AAA", "target_weight": 50},
+            {"ticker": "BBB", "target_weight": 50},
+        ]
+    )
+    prices = {
+        "AAA": pd.Series([10.0, 12.0, 14.0]),
+        "BBB": pd.Series(dtype=float),
+    }
+
+    result = build_weighted_portfolio_index(prices, watchlist)
+
+    assert not result.empty
+    assert result.iloc[0] == pytest.approx(100.0)
+    assert result.iloc[-1] == pytest.approx(140.0)
+
+
+def test_portfolio_vs_benchmark_alignment_can_proceed_when_portfolio_exists():
+    watchlist = pd.DataFrame(
+        [
+            {"ticker": "AAA", "target_weight": 100},
+            {"ticker": "VWRA", "target_weight": 0},
+        ]
+    )
+    prices = {
+        "AAA": pd.Series([10.0, 11.0, 12.0], index=pd.date_range("2024-01-01", periods=3, freq="D")),
+        "VWRA": pd.Series([100.0, 101.0, 103.0], index=pd.date_range("2024-01-01", periods=3, freq="D")),
+    }
+
+    portfolio_index = build_weighted_portfolio_index(prices, watchlist)
+    benchmark_index = build_indexed_price_series(prices["VWRA"])
+    compare_df = pd.concat(
+        [portfolio_index.rename("Portfolio/Watchlist"), benchmark_index.rename("VWRA")],
+        axis=1,
+        join="inner",
+    ).dropna()
+
+    assert not portfolio_index.empty
+    assert not compare_df.empty
+
+
 # ---------------------------------------------------------------------------
 # get_price_history_diagnostics tests
 # ---------------------------------------------------------------------------
@@ -442,3 +579,29 @@ def test_diagnostics_no_api_calls(monkeypatch):
     prices = {"VWRA": pd.Series([100.0, 105.0]), "CASH": pd.Series(dtype=float)}
     diag = get_price_history_diagnostics(prices)
     assert len(diag) == 2
+
+
+def test_portfolio_index_diagnostics_include_expected_reason_codes():
+    watchlist = pd.DataFrame(
+        [
+            {"ticker": "AAA", "target_weight": 50},
+            {"ticker": "BBB", "target_weight": "bad"},
+            {"ticker": "CCC", "target_weight": 0},
+            {"ticker": "DDD", "target_weight": 25},
+            {"ticker": "CASH", "target_weight": 25},
+        ]
+    )
+    prices = {
+        "AAA": pd.Series([10.0, 11.0, 12.0]),
+        "DDD": pd.Series(dtype=float),
+    }
+
+    diag = get_portfolio_index_diagnostics(prices, watchlist)
+
+    by_ticker = {row["ticker"]: row for _, row in diag.iterrows()}
+    assert by_ticker["AAA"]["reason"] == "included"
+    assert bool(by_ticker["AAA"]["included"]) is True
+    assert by_ticker["BBB"]["reason"] == "missing_weight"
+    assert by_ticker["CCC"]["reason"] == "non_positive_weight"
+    assert by_ticker["DDD"]["reason"] == "missing_history"
+    assert by_ticker["CASH"]["reason"] == "cash_excluded"
