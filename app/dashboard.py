@@ -1119,3 +1119,13 @@ with tabs[5]:
         "Future: record ticker, decision, reason, amount, order type, date, and outcome/review notes here."
     )
     st.caption("Trade Journal: future enhancement — manual entry only, no automatic execution.")
+
+# ---------------------------------------------------------------------------
+# Sidebar — Deployment status
+# ---------------------------------------------------------------------------
+with st.sidebar:
+    with st.expander("Deployment status"):
+        st.write(f"App mode: {'Cloud' if os.getenv('HOME') == '/home/appuser' else 'Local'}")
+        st.write(f"Gemini enabled: {'Yes' if config.get('gemini_api_key') else 'No'}")
+        _prices_available = prices is not None and not prices.empty
+        st.write(f"Data source: {'Live' if _prices_available else 'Fallback / unavailable'}")
