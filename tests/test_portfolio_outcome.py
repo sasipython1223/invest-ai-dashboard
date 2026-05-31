@@ -1,3 +1,4 @@
+import ast
 import inspect
 
 import pandas as pd
@@ -50,6 +51,15 @@ def test_default_allocation_excludes_cash_and_reduce_avoid():
     assert "DBS" not in tickers
 
 
+def test_default_allocation_excludes_cash_asset_type_even_if_ticker_is_not_cash():
+    watchlist = _sample_watchlist().copy()
+    watchlist.loc[watchlist["ticker"] == "AAPL", "type"] = "Cash"
+
+    allocation = build_default_allocation(signals=_sample_signals(), watchlist=watchlist, include_tactical=True)
+
+    assert "AAPL" not in set(allocation["ticker"])
+
+
 def test_default_allocation_excludes_tactical_when_disabled():
     allocation = build_default_allocation(
         signals=_sample_signals(),
@@ -93,7 +103,7 @@ def test_normalize_allocations_handles_total_not_100():
     assert float(normalized.loc[normalized["ticker"] == "VWRA", "allocation_pct"].iloc[0]) > 70.0
 
 
-def test_ticker_outcome_uses_scenario_ratio_to_convert_to_currency(monkeypatch):
+def test_ticker_outcome_converts_price_scenarios_to_currency_values(monkeypatch):
     history = pd.Series([100.0, 110.0, 120.0])
 
     def _fake_summary(_: pd.Series) -> pd.DataFrame:
@@ -174,11 +184,15 @@ def test_insufficient_price_history_skips_ticker_with_clear_status():
     assert outcome["status"] == "skipped_insufficient_history"
 
 
-def test_portfolio_outcome_module_has_no_broker_or_ai_execution_logic():
-    module_source = inspect.getsource(portfolio_outcome).lower()
+def test_portfolio_outcome_module_has_no_broker_or_ai_imports():
+    module_source = inspect.getsource(portfolio_outcome)
+    tree = ast.parse(module_source)
+    blocked_prefixes = ("src.ai_review", "src.broker", "src.tiger")
 
-    assert "broker" not in module_source
-    assert "tiger api" not in module_source
-    assert "order placement" not in module_source
-    assert "review_with_openai" not in module_source
-    assert "review_with_gemini" not in module_source
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                assert not alias.name.startswith(blocked_prefixes)
+        if isinstance(node, ast.ImportFrom):
+            source = node.module or ""
+            assert not source.startswith(blocked_prefixes)

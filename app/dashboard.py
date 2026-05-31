@@ -86,6 +86,10 @@ SCENARIO_WARNINGS = (
     "Longer-horizon forecasts are less reliable than shorter-horizon forecasts.",
     "Manual review required. No trades are executed by this dashboard.",
 )
+SCENARIO_LABEL_BEST = "Best (+2 SD)"
+SCENARIO_LABEL_LIKELY = "Likely / Expected"
+SCENARIO_LABEL_WORST = "Worst (-2 SD)"
+ALLOCATION_TOLERANCE = 1e-6
 st.warning(GUARDRAIL_SUMMARY)
 
 
@@ -150,6 +154,14 @@ def _build_scenario_cone_figure(cone_df: pd.DataFrame, title: str) -> go.Figure:
         yaxis_title="Scenario value",
     )
     return fig
+
+
+def _get_scenario_value(portfolio_outcome_df: pd.DataFrame, scenario_label: str, column: str) -> float:
+    scenario_rows = portfolio_outcome_df.loc[portfolio_outcome_df["Scenario"] == scenario_label, column]
+    if scenario_rows.empty:
+        return 0.0
+    return float(scenario_rows.sum())
+
 
 # ---------------------------------------------------------------------------
 # Data loading — runs once per page load, shared across all tabs
@@ -610,7 +622,7 @@ with tabs[1]:
             edited_allocation_df = normalize_allocations(edited_allocation_df)
             normalized_total = float(edited_allocation_df["allocation_pct"].sum())
             st.caption(f"Allocations normalized to {normalized_total:.2f}% for outcome calculations.")
-        elif abs(allocation_total - 100.0) > 1e-6:
+        elif abs(allocation_total - 100.0) > ALLOCATION_TOLERANCE:
             st.warning(
                 f"Allocation total is {allocation_total:.0f}%. Normalize before interpreting outcomes."
             )
@@ -626,18 +638,10 @@ with tabs[1]:
             ticker_outcome_df["allocation_pct"] = ticker_outcome_df["allocation_pct"].astype(float)
             ticker_outcome_df["amount"] = ticker_outcome_df["amount"].astype(float)
 
-        likely_value = float(
-            portfolio_outcome_df.loc[portfolio_outcome_df["Scenario"] == "Likely / Expected", "Ending Value"].sum()
-        )
-        best_value = float(
-            portfolio_outcome_df.loc[portfolio_outcome_df["Scenario"] == "Best (+2 SD)", "Ending Value"].sum()
-        )
-        worst_value = float(
-            portfolio_outcome_df.loc[portfolio_outcome_df["Scenario"] == "Worst (-2 SD)", "Ending Value"].sum()
-        )
-        worst_loss = float(
-            portfolio_outcome_df.loc[portfolio_outcome_df["Scenario"] == "Worst (-2 SD)", "Gain / Loss"].sum()
-        )
+        likely_value = _get_scenario_value(portfolio_outcome_df, SCENARIO_LABEL_LIKELY, "Ending Value")
+        best_value = _get_scenario_value(portfolio_outcome_df, SCENARIO_LABEL_BEST, "Ending Value")
+        worst_value = _get_scenario_value(portfolio_outcome_df, SCENARIO_LABEL_WORST, "Ending Value")
+        worst_loss = _get_scenario_value(portfolio_outcome_df, SCENARIO_LABEL_WORST, "Gain / Loss")
 
         summary_cols = st.columns(5)
         summary_cols[0].metric("Investment amount", f"{simulator_currency} {float(simulator_investment):,.2f}")
@@ -680,7 +684,7 @@ with tabs[1]:
 
         scenario_bar = go.Figure(
             go.Bar(
-                x=["Invested", "Best (+2 SD)", "Likely / Expected", "Worst (-2 SD)"],
+                x=["Invested", SCENARIO_LABEL_BEST, SCENARIO_LABEL_LIKELY, SCENARIO_LABEL_WORST],
                 y=[
                     float(simulator_investment),
                     best_value,

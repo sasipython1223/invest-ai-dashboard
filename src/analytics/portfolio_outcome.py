@@ -5,12 +5,13 @@ import math
 import pandas as pd
 
 from src.analytics.scenario_forecast import build_scenario_summary
-from src.ui.trend_charts import normalize_price_history, resolve_price_history
 
 _ALLOCATION_COLUMNS = ["ticker", "name", "signal", "bucket", "allocation_pct", "target_weight", "data_ticker"]
+_CLOSE_COLUMNS = ("Close", "Adj Close", "close", "adj_close")
+TACTICAL_REVIEW_MODE_MULTIPLIER = 0.5
 
 
-def _to_float(value: object, default: float = 0.0) -> float:
+def _parse_float_with_default(value: object, default: float = 0.0) -> float:
     try:
         parsed = float(value)
     except (TypeError, ValueError):
@@ -29,6 +30,43 @@ def _normalize_weights(weights: pd.Series) -> pd.Series:
     if total <= 0:
         return pd.Series(dtype=float)
     return clean / total * 100.0
+
+
+def _extract_and_clean_price_series(price_history: object) -> pd.Series:
+    if isinstance(price_history, pd.DataFrame):
+        for col in _CLOSE_COLUMNS:
+            if col in price_history.columns:
+                return pd.to_numeric(price_history[col], errors="coerce").dropna()
+        if price_history.shape[1] == 1:
+            return pd.to_numeric(price_history.iloc[:, 0], errors="coerce").dropna()
+        return pd.Series(dtype=float)
+
+    if isinstance(price_history, pd.Series):
+        return pd.to_numeric(price_history, errors="coerce").dropna()
+
+    try:
+        return pd.to_numeric(pd.Series(price_history), errors="coerce").dropna()
+    except Exception:
+        return pd.Series(dtype=float)
+
+
+def _resolve_price_history(
+    prices: dict[str, pd.Series],
+    ticker: str,
+    data_ticker: str | None = None,
+) -> pd.Series:
+    value = prices.get(ticker)
+    if value is not None:
+        cleaned = _extract_and_clean_price_series(value)
+        if not cleaned.empty:
+            return cleaned
+    if data_ticker and data_ticker != ticker:
+        value = prices.get(data_ticker)
+        if value is not None:
+            cleaned = _extract_and_clean_price_series(value)
+            if not cleaned.empty:
+                return cleaned
+    return pd.Series(dtype=float)
 
 
 def build_default_allocation(
@@ -62,9 +100,9 @@ def build_default_allocation(
         if bucket == "tactical" and not include_tactical:
             continue
 
-        weight = max(_to_float(row.get("target_weight"), 0.0), 0.0)
+        weight = max(_parse_float_with_default(row.get("target_weight"), 0.0), 0.0)
         if review_mode and bucket == "tactical":
-            weight *= 0.5
+            weight *= TACTICAL_REVIEW_MODE_MULTIPLIER
 
         rows.append(
             {
@@ -118,7 +156,7 @@ def calculate_ticker_outcome(
         base_row["worst_loss"] = 0.0
         return base_row
 
-    history = normalize_price_history(price_history)
+    history = _extract_and_clean_price_series(price_history)
     summary_df = build_scenario_summary(history)
     if history.empty or summary_df.empty:
         return base_row
@@ -134,12 +172,13 @@ def calculate_ticker_outcome(
         return base_row
 
     row = horizon_row.iloc[0]
+    amount_per_price_unit = float(allocated_amount) / current_price
     scenario_amounts = {
-        "best_value": float(allocated_amount) * float(row["best_2sd"]) / current_price,
-        "normal_upper_value": float(allocated_amount) * float(row["normal_upper_1sd"]) / current_price,
-        "expected_value": float(allocated_amount) * float(row["expected"]) / current_price,
-        "normal_lower_value": float(allocated_amount) * float(row["normal_lower_1sd"]) / current_price,
-        "worst_value": float(allocated_amount) * float(row["worst_2sd"]) / current_price,
+        "best_value": amount_per_price_unit * float(row["best_2sd"]),
+        "normal_upper_value": amount_per_price_unit * float(row["normal_upper_1sd"]),
+        "expected_value": amount_per_price_unit * float(row["expected"]),
+        "normal_lower_value": amount_per_price_unit * float(row["normal_lower_1sd"]),
+        "worst_value": amount_per_price_unit * float(row["worst_2sd"]),
     }
 
     return {
@@ -178,10 +217,10 @@ def calculate_portfolio_outcome(
     rows: list[dict[str, object]] = []
     for _, row in allocation_df.iterrows():
         ticker = str(row.get("ticker", "")).strip().upper()
-        allocation_pct = _to_float(row.get("allocation_pct"), 0.0)
+        allocation_pct = _parse_float_with_default(row.get("allocation_pct"), 0.0)
         amount = float(total_investment) * allocation_pct / 100.0
         data_ticker = str(row.get("data_ticker", "") or "").strip() or None
-        history = resolve_price_history(prices, ticker, data_ticker)
+        history = _resolve_price_history(prices, ticker, data_ticker)
         outcome = calculate_ticker_outcome(ticker, amount, history, horizon_label)
         rows.append(
             {
