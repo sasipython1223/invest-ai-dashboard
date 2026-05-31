@@ -41,6 +41,7 @@ from src.ui.trend_charts import (
     build_return_summary,
     build_ticker_trend_dataframe,
     build_weighted_portfolio_index,
+    get_portfolio_index_diagnostics,
     get_price_history_diagnostics,
     rebase_comparison_frame,
     resolve_price_history,
@@ -209,24 +210,16 @@ with tabs[1]:
                 _ticker_to_data_ticker[_t] = _dt
 
     portfolio_index = build_weighted_portfolio_index(prices, watchlist)
-    _portfolio_skipped: list[str] = []
-    if portfolio_index.empty and not watchlist.empty:
-        for _, _wl_row in watchlist.iterrows():
-            _t = str(_wl_row.get("ticker", "")).upper().strip()
-            if _t in ("CASH", ""):
-                continue
-            _dt = _ticker_to_data_ticker.get(_t)
-            _s = resolve_price_history(prices, _t, _dt)
-            if len(_s) < 2:
-                _portfolio_skipped.append(_t)
+    portfolio_index_diag = get_portfolio_index_diagnostics(prices, watchlist)
 
     if portfolio_index.empty:
         st.info("Combined indexed trend is unavailable due to missing or insufficient price history.")
         with st.expander("Show price history diagnostics"):
             st.write(f"Available price-history keys: **{len(prices)}**")
             st.write(f"Ticker → data_ticker mapping: {_ticker_to_data_ticker}")
-            if _portfolio_skipped:
-                st.write(f"Tickers skipped (missing/insufficient history): {_portfolio_skipped}")
+            if not portfolio_index_diag.empty:
+                st.write("Portfolio index diagnostics")
+                st.dataframe(portfolio_index_diag, use_container_width=True)
             _diag_df = get_price_history_diagnostics(prices)
             if not _diag_df.empty:
                 st.dataframe(_diag_df, use_container_width=True)

@@ -166,50 +166,137 @@ def build_indexed_price_series(price_history: object) -> pd.Series:
     return history / start_price * 100.0
 
 
-def build_weighted_portfolio_index(
-    prices: dict[str, pd.Series],
+def _empty_portfolio_index_diagnostics() -> pd.DataFrame:
+    return pd.DataFrame(
+        columns=[
+            "ticker",
+            "data_ticker",
+            "target_weight",
+            "history_length",
+            "indexed_length",
+            "included",
+            "reason",
+        ]
+    )
+
+
+def _collect_weighted_portfolio_components(
+    prices: dict[str, object],
     watchlist: pd.DataFrame,
-) -> pd.Series:
+) -> tuple[pd.DataFrame, pd.Series, pd.DataFrame]:
     if watchlist.empty or "ticker" not in watchlist or "target_weight" not in watchlist:
-        return pd.Series(dtype=float)
+        return pd.DataFrame(dtype=float), pd.Series(dtype=float), _empty_portfolio_index_diagnostics()
 
     indexed_series_by_ticker: dict[str, pd.Series] = {}
     weights: dict[str, float] = {}
+    diagnostics_rows: list[dict] = []
 
     for _, row in watchlist.iterrows():
         ticker = str(row.get("ticker", "")).upper().strip()
-        if ticker == "CASH" or ticker == "":
-            continue
-
-        target_weight = pd.to_numeric(row.get("target_weight"), errors="coerce")
-        if pd.isna(target_weight) or float(target_weight) <= 0:
-            continue
-
         data_ticker = str(row.get("data_ticker", "") or "").strip() or None
-        indexed_series = build_indexed_price_series(
-            resolve_price_history(prices, ticker, data_ticker)
-        )
-        if len(indexed_series) < 2:
+        target_weight = pd.to_numeric(row.get("target_weight"), errors="coerce")
+        diag_row = {
+            "ticker": ticker,
+            "data_ticker": data_ticker,
+            "target_weight": None if pd.isna(target_weight) else float(target_weight),
+            "history_length": 0,
+            "indexed_length": 0,
+            "included": False,
+            "reason": "missing_weight",
+        }
+
+        if ticker in ("", "CASH"):
+            diag_row["reason"] = "cash_excluded"
+            diagnostics_rows.append(diag_row)
             continue
 
-        indexed_series_by_ticker[ticker] = indexed_series
+        if pd.isna(target_weight):
+            diagnostics_rows.append(diag_row)
+            continue
+
+        if float(target_weight) <= 0:
+            diag_row["reason"] = "non_positive_weight"
+            diagnostics_rows.append(diag_row)
+            continue
+
+        history = resolve_price_history(prices, ticker, data_ticker)
+        diag_row["history_length"] = int(len(history))
+        if history.empty:
+            diag_row["reason"] = "missing_history"
+            diagnostics_rows.append(diag_row)
+            continue
+
+        indexed = build_indexed_price_series(history)
+        diag_row["indexed_length"] = int(len(indexed))
+        if len(indexed) < 2:
+            diag_row["reason"] = "too_short_history"
+            diagnostics_rows.append(diag_row)
+            continue
+
+        indexed_series_by_ticker[ticker] = indexed
         weights[ticker] = float(target_weight)
+        diag_row["reason"] = "alignment_excluded"
+        diagnostics_rows.append(diag_row)
 
+    diagnostics = pd.DataFrame(
+        diagnostics_rows,
+        columns=_empty_portfolio_index_diagnostics().columns,
+    )
     if not indexed_series_by_ticker:
-        return pd.Series(dtype=float)
+        return pd.DataFrame(dtype=float), pd.Series(dtype=float), diagnostics
 
-    indexed_frame = pd.concat(indexed_series_by_ticker, axis=1, join="inner")
-    if indexed_frame.empty:
-        return pd.Series(dtype=float)
+    aligned = pd.concat(indexed_series_by_ticker, axis=1, join="inner").dropna(how="any")
+    if aligned.empty:
+        aligned = (
+            pd.concat(indexed_series_by_ticker, axis=1, join="outer")
+            .sort_index()
+            .ffill()
+            .dropna(how="all")
+        )
+    if aligned.empty:
+        return pd.DataFrame(dtype=float), pd.Series(dtype=float), diagnostics
 
-    weight_series = pd.Series(weights, dtype=float).reindex(indexed_frame.columns)
+    valid_columns = [col for col in aligned.columns if aligned[col].notna().sum() >= 2]
+    aligned = aligned[valid_columns].dropna(how="all")
+    if aligned.empty:
+        return pd.DataFrame(dtype=float), pd.Series(dtype=float), diagnostics
+
+    weight_series = pd.Series(weights, dtype=float).reindex(aligned.columns).dropna()
     weight_sum = float(weight_series.sum())
     if weight_sum <= 0:
+        return pd.DataFrame(dtype=float), pd.Series(dtype=float), diagnostics
+    normalized_weights = weight_series / weight_sum
+
+    if not diagnostics.empty:
+        included_set = set(aligned.columns)
+        for idx, ticker in diagnostics["ticker"].items():
+            if ticker in included_set:
+                diagnostics.at[idx, "included"] = True
+                diagnostics.at[idx, "reason"] = "included"
+
+    return aligned, normalized_weights, diagnostics
+
+
+def get_portfolio_index_diagnostics(
+    prices: dict[str, object],
+    watchlist: pd.DataFrame,
+) -> pd.DataFrame:
+    _, _, diagnostics = _collect_weighted_portfolio_components(prices, watchlist)
+    return diagnostics
+
+
+def build_weighted_portfolio_index(
+    prices: dict[str, object],
+    watchlist: pd.DataFrame,
+) -> pd.Series:
+    aligned, normalized_weights, _ = _collect_weighted_portfolio_components(prices, watchlist)
+    if aligned.empty or normalized_weights.empty:
         return pd.Series(dtype=float)
 
-    normalized_weights = weight_series / weight_sum
-    weighted_index = indexed_frame.mul(normalized_weights, axis=1).sum(axis=1)
-    return build_indexed_price_series(weighted_index)
+    weighted_index = aligned.mul(normalized_weights, axis=1).sum(axis=1).dropna()
+    if weighted_index.empty:
+        return pd.Series(dtype=float)
+    return weighted_index / float(weighted_index.iloc[0]) * 100.0
 
 
 def build_drawdown_series(index_series: pd.Series) -> pd.Series:
