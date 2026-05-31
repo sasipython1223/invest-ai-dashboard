@@ -65,6 +65,7 @@ from src.ui.trend_charts import (
     resolve_price_history,
 )
 from src.utils.config import load_config
+from src.utils.price_data_check import has_price_data
 
 
 st.set_page_config(page_title="invest-ai-dashboard", layout="wide")
@@ -1119,3 +1120,12 @@ with tabs[5]:
         "Future: record ticker, decision, reason, amount, order type, date, and outcome/review notes here."
     )
     st.caption("Trade Journal: future enhancement — manual entry only, no automatic execution.")
+
+# ---------------------------------------------------------------------------
+# Sidebar — Deployment status
+# ---------------------------------------------------------------------------
+with st.sidebar:
+    with st.expander("Deployment status"):
+        st.write(f"App mode: {'Cloud' if os.getenv('HOME') == '/home/appuser' else 'Local'}")
+        st.write(f"Gemini enabled: {'Yes' if config.get('gemini_api_key') else 'No'}")
+        st.write(f"Data source: {'Live' if has_price_data(prices) else 'Fallback / unavailable'}")
