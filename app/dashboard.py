@@ -10,6 +10,11 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 
+from src.analytics.scenario_forecast import (
+    assign_volatility_risk_status,
+    build_scenario_summary,
+    build_volatility_cone,
+)
 from src.ai_review.consensus_checker import check_consensus
 from src.ai_review.gemini_entry_reviewer import (
     DEFAULT_GEMINI_MODEL,
@@ -62,7 +67,76 @@ STATUS_NOT_ENABLED = "Not enabled"
 STATUS_PLACEHOLDER = "Placeholder"
 STATUS_INSUFFICIENT_AI = "Insufficient AI reviews"
 BENCHMARK_CANDIDATES = ["VWRA", "CSPX", "ES3"]
+SCENARIO_WARNINGS = (
+    "Scenario range based on historical volatility. Not a prediction or guarantee.",
+    "Models assume normal market conditions. Extreme events can exceed the displayed bands.",
+    "Longer-horizon forecasts are less reliable than shorter-horizon forecasts.",
+    "Manual review required. No trades are executed by this dashboard.",
+)
 st.warning(GUARDRAIL_SUMMARY)
+
+
+def _build_scenario_cone_figure(cone_df: pd.DataFrame, title: str) -> go.Figure:
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=cone_df["step"],
+            y=cone_df["extreme_upper"],
+            mode="lines",
+            line=dict(width=0),
+            name="Extreme Upper (+2 SD)",
+            showlegend=False,
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=cone_df["step"],
+            y=cone_df["extreme_lower"],
+            mode="lines",
+            line=dict(width=0),
+            fill="tonexty",
+            fillcolor="rgba(255, 140, 0, 0.15)",
+            name="Extreme band (±2 SD)",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=cone_df["step"],
+            y=cone_df["normal_upper"],
+            mode="lines",
+            line=dict(width=0),
+            name="Normal Upper (+1 SD)",
+            showlegend=False,
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=cone_df["step"],
+            y=cone_df["normal_lower"],
+            mode="lines",
+            line=dict(width=0),
+            fill="tonexty",
+            fillcolor="rgba(30, 144, 255, 0.22)",
+            name="Normal band (±1 SD)",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=cone_df["step"],
+            y=cone_df["expected"],
+            mode="lines",
+            line=dict(width=2),
+            name="Expected / Median",
+        )
+    )
+    fig.update_layout(
+        title=title,
+        height=340,
+        margin=dict(l=10, r=10, t=40, b=10),
+        xaxis_title="Trading days ahead",
+        yaxis_title="Scenario value",
+    )
+    return fig
 
 # ---------------------------------------------------------------------------
 # Data loading — runs once per page load, shared across all tabs
@@ -330,6 +404,48 @@ with tabs[1]:
         )
         st.plotly_chart(drawdown_fig, use_container_width=True)
 
+    st.subheader("Portfolio Scenario Outlook")
+    if portfolio_index.empty:
+        st.info("Portfolio scenario outlook is unavailable because the combined indexed trend is unavailable.")
+    else:
+        portfolio_cone_df = build_volatility_cone(portfolio_index, horizon_days=126)
+        portfolio_summary_df = build_scenario_summary(portfolio_index)
+        if portfolio_cone_df.empty or portfolio_summary_df.empty:
+            st.info(
+                "Portfolio scenario outlook needs at least 60 daily return observations "
+                "from recent price history."
+            )
+        else:
+            annual_volatility = float(portfolio_summary_df["annual_volatility"].iloc[0])
+            annual_return = float(portfolio_summary_df["annual_return"].iloc[0])
+            scenario_cols = st.columns(3)
+            scenario_cols[0].metric("Current index value", f"{float(portfolio_index.iloc[-1]):.2f}")
+            scenario_cols[1].metric("Annualized volatility", f"{annual_volatility * 100:.2f}%")
+            scenario_cols[2].metric("Risk status", assign_volatility_risk_status(annual_volatility))
+            st.caption(f"Annualized return (historical): {annual_return * 100:.2f}%")
+            st.plotly_chart(
+                _build_scenario_cone_figure(portfolio_cone_df, "Portfolio Volatility Cone"),
+                use_container_width=True,
+            )
+            st.dataframe(
+                portfolio_summary_df.rename(
+                    columns={
+                        "horizon": "Horizon",
+                        "best_2sd": "Best (+2 SD)",
+                        "normal_upper_1sd": "Normal Upper (+1 SD)",
+                        "expected": "Expected / Median",
+                        "normal_lower_1sd": "Normal Lower (-1 SD)",
+                        "worst_2sd": "Worst (-2 SD)",
+                        "annual_return": "Annualized Return",
+                        "annual_volatility": "Annualized Volatility",
+                    }
+                ),
+                use_container_width=True,
+            )
+            for scenario_warning in SCENARIO_WARNINGS:
+                st.caption(scenario_warning)
+            st.caption("Gemini scenario review: future enhancement")
+
     st.subheader("Cash deployment planner")
     input_cols = st.columns(2)
     cash_amount = input_cols[0].number_input(
@@ -570,6 +686,47 @@ with tabs[3]:
             yaxis_title="Price",
         )
         st.plotly_chart(trend_fig, use_container_width=True)
+
+    st.subheader("Ticker Scenario Outlook")
+    ticker_cone_df = build_volatility_cone(_selected_price_history, horizon_days=126)
+    ticker_summary_df = build_scenario_summary(_selected_price_history)
+    if ticker_cone_df.empty or ticker_summary_df.empty:
+        st.info(
+            "Ticker scenario outlook needs at least 60 daily return observations "
+            "from recent price history."
+        )
+    else:
+        ticker_annual_return = float(ticker_summary_df["annual_return"].iloc[0])
+        ticker_annual_volatility = float(ticker_summary_df["annual_volatility"].iloc[0])
+        ticker_scenario_cols = st.columns(4)
+        ticker_scenario_cols[0].metric("Current price", format_optional_price(entry_guidance["latest_price"]))
+        ticker_scenario_cols[1].metric("Annualized return", f"{ticker_annual_return * 100:.2f}%")
+        ticker_scenario_cols[2].metric("Annualized volatility", f"{ticker_annual_volatility * 100:.2f}%")
+        ticker_scenario_cols[3].metric(
+            "Risk status", assign_volatility_risk_status(ticker_annual_volatility)
+        )
+        st.plotly_chart(
+            _build_scenario_cone_figure(ticker_cone_df, f"{selected_entry_ticker} Volatility Cone"),
+            use_container_width=True,
+        )
+        st.dataframe(
+            ticker_summary_df.rename(
+                columns={
+                    "horizon": "Horizon",
+                    "best_2sd": "Best (+2 SD)",
+                    "normal_upper_1sd": "Normal Upper (+1 SD)",
+                    "expected": "Expected / Median",
+                    "normal_lower_1sd": "Normal Lower (-1 SD)",
+                    "worst_2sd": "Worst (-2 SD)",
+                    "annual_return": "Annualized Return",
+                    "annual_volatility": "Annualized Volatility",
+                }
+            ),
+            use_container_width=True,
+        )
+        for scenario_warning in SCENARIO_WARNINGS:
+            st.caption(scenario_warning)
+        st.caption("Gemini scenario review: future enhancement")
 
     st.subheader("Price context")
     price_cols_row1 = st.columns(4)
