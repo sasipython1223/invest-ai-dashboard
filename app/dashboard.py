@@ -202,7 +202,8 @@ with tabs[0]:
         )
 
     reserve_target_weight = get_current_reserve_target(watchlist)
-    if reserve_target_weight == 0.0:
+    # Fallback keeps Decision Center usable when CASH is absent or target weight is missing in watchlist input.
+    if reserve_target_weight is None:
         reserve_target_weight = float(risk.get("reserve_target_weight", 0.0))
     decision_center_text = build_gauge_explanation(
         signals=signals,
@@ -273,8 +274,9 @@ with tabs[0]:
         current_reserve_pct=reserve_target_weight,
         test_reserve_pct=float(test_reserve_target),
     )
-    current_row = scenario_df.iloc[0]
-    test_row = scenario_df.iloc[1]
+    scenario_by_name = scenario_df.set_index("scenario")
+    current_row = scenario_by_name.loc["Current target"]
+    test_row = scenario_by_name.loc["Test target"]
     st.subheader("Cash Reserve Scenario")
     st.caption(
         f"Current target: {reserve_target_weight:.2f}% | Test target: {test_reserve_target:.2f}%"

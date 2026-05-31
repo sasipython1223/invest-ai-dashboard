@@ -1,3 +1,4 @@
+import ast
 import inspect
 
 import pandas as pd
@@ -85,7 +86,7 @@ def test_cash_reserve_scenario_compares_current_and_test_targets():
     assert scenario.loc["Test target", "deploy_for_review"] == 800.0
 
 
-def test_cash_reserve_scenario_does_not_mutate_watchlist_dataframe():
+def test_get_current_reserve_target_does_not_mutate_watchlist_dataframe():
     watchlist = pd.DataFrame(
         [
             {"ticker": "VWRA", "target_weight": 40.0},
@@ -104,11 +105,26 @@ def test_cash_reserve_scenario_does_not_mutate_watchlist_dataframe():
     pd.testing.assert_frame_equal(watchlist, original)
 
 
-def test_decision_center_helpers_do_not_add_broker_or_tiger_logic():
+def test_decision_center_module_does_not_import_broker_or_trading_modules():
     import src.ui.decision_center as decision_center
 
-    source = inspect.getsource(decision_center).lower()
+    module_ast = ast.parse(inspect.getsource(decision_center))
 
-    assert "tiger api" not in source
-    assert "broker connection" not in source
-    assert "order placement" not in source
+    imported_modules: set[str] = set()
+    called_names: set[str] = set()
+    for node in ast.walk(module_ast):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                imported_modules.add(alias.name.lower())
+        if isinstance(node, ast.ImportFrom) and node.module:
+            imported_modules.add(node.module.lower())
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name):
+                called_names.add(node.func.id.lower())
+            if isinstance(node.func, ast.Attribute):
+                called_names.add(node.func.attr.lower())
+
+    assert all("tiger" not in module_name for module_name in imported_modules)
+    assert all("broker" not in module_name for module_name in imported_modules)
+    assert "execute_trade" not in called_names
+    assert "place_order" not in called_names
