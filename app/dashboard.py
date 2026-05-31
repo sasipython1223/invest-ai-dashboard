@@ -38,6 +38,13 @@ from src.ui.charts import (
     calculate_action_urgency_score,
     calculate_watchlist_health_score,
 )
+from src.ui.decision_center import (
+    build_gauge_explanation,
+    build_ticker_name_lookup,
+    calculate_cash_reserve_scenario,
+    format_ticker_list,
+    get_current_reserve_target,
+)
 from src.ui.formatters import build_bid_zone_table, format_optional_price
 from src.ui.tab_helpers import get_tab_labels
 from src.ui.trend_charts import (
@@ -194,6 +201,17 @@ with tabs[0]:
             use_container_width=True,
         )
 
+    reserve_target_weight = get_current_reserve_target(watchlist)
+    # Fallback keeps Decision Center usable when CASH is absent or target weight is missing in watchlist input.
+    if reserve_target_weight is None:
+        reserve_target_weight = float(risk.get("reserve_target_weight", 0.0))
+    decision_center_text = build_gauge_explanation(
+        signals=signals,
+        health_score=int(health_summary["score"]),
+        urgency_score=int(urgency_summary["score"]),
+        reserve_target_weight=reserve_target_weight,
+    )
+
     with gauge_cols[1]:
         st.caption(f"Action Urgency: {urgency_summary['label']}")
         st.plotly_chart(
@@ -214,10 +232,71 @@ with tabs[0]:
             ).update_layout(height=220, margin=dict(l=10, r=10, t=40, b=10)),
             use_container_width=True,
         )
+    st.caption(decision_center_text["health_explanation"])
+    st.caption(decision_center_text["urgency_explanation"])
+    st.write("Urgency drivers:")
+    for urgency_driver in decision_center_text["urgency_drivers"]:
+        st.write(f"- {urgency_driver}")
 
-    reserve_target_weight = float(risk.get("reserve_target_weight", 0.0))
+    ticker_name_lookup = build_ticker_name_lookup(watchlist)
+    grouped_tickers = decision_center_text["grouped_tickers"]
+    st.caption(
+        f"Hold / Buy candidates: {format_ticker_list(grouped_tickers['hold_buy'], ticker_name_lookup)}"
+    )
+    st.caption(f"Watch items: {format_ticker_list(grouped_tickers['watch'], ticker_name_lookup)}")
+    st.caption(
+        f"Reduce / Avoid: {format_ticker_list(grouped_tickers['reduce_avoid'], ticker_name_lookup)}"
+    )
+    st.caption(f"Cash: {format_ticker_list(grouped_tickers['cash'], ticker_name_lookup)}")
+
+    with st.expander("Show how these scores are calculated"):
+        for scoring_logic in decision_center_text["scoring_logic_lines"]:
+            st.write(f"- {scoring_logic}")
+
     st.caption(f"Cash reserve target: {reserve_target_weight:.2f}%")
     st.progress(max(0.0, min(1.0, reserve_target_weight / 100)))
+
+    test_reserve_target = st.slider(
+        "Test cash reserve target (%)",
+        min_value=0.0,
+        max_value=40.0,
+        value=float(round(reserve_target_weight, 2)),
+        step=0.5,
+    )
+    sample_review_amount = st.number_input(
+        "Sample review amount",
+        min_value=0.0,
+        value=1000.0,
+        step=100.0,
+    )
+    scenario_df = calculate_cash_reserve_scenario(
+        review_amount=float(sample_review_amount),
+        current_reserve_pct=reserve_target_weight,
+        test_reserve_pct=float(test_reserve_target),
+    )
+    scenario_by_name = scenario_df.set_index("scenario")
+    current_row = scenario_by_name.loc["Current target"]
+    test_row = scenario_by_name.loc["Test target"]
+    st.subheader("Cash Reserve Scenario")
+    st.caption(
+        f"Current target: {reserve_target_weight:.2f}% | Test target: {test_reserve_target:.2f}%"
+    )
+    if test_reserve_target > reserve_target_weight:
+        st.write("Effect: available deployment amount decreases; dry powder increases.")
+    elif test_reserve_target < reserve_target_weight:
+        st.write("Effect: available deployment amount increases; dry powder decreases.")
+    else:
+        st.write("Effect: deployment and dry powder are unchanged.")
+    st.write(
+        f"At {current_row['reserve_target_pct']:.2f}% reserve target: retain "
+        f"{current_row['keep_as_cash']:.2f}, review up to {current_row['deploy_for_review']:.2f} before risk adjustment."
+    )
+    st.write(
+        f"At {test_row['reserve_target_pct']:.2f}% reserve target: retain "
+        f"{test_row['keep_as_cash']:.2f}, review up to {test_row['deploy_for_review']:.2f} before risk adjustment."
+    )
+    st.dataframe(scenario_df, use_container_width=True, hide_index=True)
+    st.info(f"Decision interpretation: {decision_center_text['interpretation']}")
 
     st.info(MANUAL_REVIEW_NOTE)
     st.subheader("Today's Action List")
